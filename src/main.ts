@@ -9,28 +9,38 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('NestApplication');
+  try {
+    app.enableCors();
+    app.useGlobalPipes(new ValidationPipe());
+    app.useGlobalInterceptors(new TransformInterceptor());
+    app.useGlobalFilters(new HttpExceptionFilter());
 
-  app.enableCors();
-  app.useGlobalPipes(new ValidationPipe());
-  app.useGlobalInterceptors(new TransformInterceptor());
-  app.useGlobalFilters(new HttpExceptionFilter());
+    // Swagger configuration
+    const config = new DocumentBuilder()
+      .setTitle('Event Management API')
+      .setDescription('API documentation for the Event Management system')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api', app, document);
 
-  // Swagger configuration
-  const config = new DocumentBuilder()
-    .setTitle('Event Management API')
-    .setDescription('API documentation for the Event Management system')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, document);
+    app.setGlobalPrefix('/api/v1');
 
-  app.setGlobalPrefix('/api/v1');
+    const configService = app.get(ConfigService);
 
-  const configService = app.get(ConfigService);
+    const port = parseInt(configService.get<string>('PORT') || '3000', 10);
 
-  const port = configService.get('PORT');
-  await app.listen(port ?? 3000);
-  logger.log(`Application is running on: ${await app.getUrl()}`);
+    if (isNaN(port) || port <= 0 || port > 65535) {
+      throw new Error(`Invalid PORT value: ${port}`);
+    }
+    await app.listen(port);
+
+    logger.log(`Application is running on: ${await app.getUrl()}`);
+    logger.log(`Swagger documentation available at: ${await app.getUrl()}/api`);
+  } catch (error) {
+    logger.error(`Failed to start the application: ${error.message}`);
+    process.exit(1);
+  }
 }
 bootstrap();
