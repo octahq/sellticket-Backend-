@@ -13,19 +13,22 @@ export class CategoryService {
   ) {}
 
   async create(name: string) {
+    // Ensure category with name doesn't exist
     const categoryExists = await this.categoryRepository.findOne({
       where: { name },
     });
-  
+
     if (categoryExists) {
       throw new BadRequestException('Category already exists');
     }
-  
-    const slug = name.toLowerCase().replace(/\s+/g, '-');
-    const category = this.categoryRepository.create({ name, slug });
 
+    // generate slug for category
+    const slug = name.toLowerCase().replace(/\s+/g, '-');
+
+    // create and save to the db
+    const category = this.categoryRepository.create({ name, slug });
     await this.categoryRepository.save(category);
-  
+
     return {
       statusCoder: HttpStatus.CREATED,
       success: true,
@@ -33,7 +36,6 @@ export class CategoryService {
       data: category,
     };
   }
-  
 
   findAll() {
     return `This action returns all category`;
