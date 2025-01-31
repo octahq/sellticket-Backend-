@@ -4,8 +4,8 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Event } from './entities/event.entity';
-import { Category } from 'src/category/entities/category.entity';
-import { CloudinaryProvider } from 'src/cloudinary/cloudinary.provider';
+import { Category } from '../category/entities/category.entity';
+import { CloudinaryProvider } from 'src/modules/cloudinary/cloudinary.provider';
 
 @Injectable()
 export class EventService {
@@ -21,7 +21,12 @@ export class EventService {
   async create(
     createEventDto: CreateEventDto,
     file?: Express.Multer.File,
-  ) {
+  ): Promise<{
+    statusCode: number;
+    success: boolean;
+    message: string;
+    data: Event;
+  }> {
     const {
       name,
       description,
@@ -35,18 +40,19 @@ export class EventService {
       additionalInfo,
     } = createEventDto;
 
+    // Ensure the category exists
     const category = await this.categoryRepository.findOne({
       where: { id: categoryId },
     });
-    if (!category) {
+    if (!category)
       throw new NotFoundException(`Category with ID ${categoryId} not found`);
-    }
 
-    let imageUrl: string | undefined;
-    if (file) {
-      imageUrl = await this.cloudinaryProvider.uploadImage(file); // Upload & get URL
-    }
+    // Upload image if provided
+    const imageUrl = file
+      ? await this.cloudinaryProvider.uploadImage(file)
+      : undefined;
 
+    // Create event entity
     const event = this.eventRepository.create({
       name,
       description,
@@ -62,6 +68,7 @@ export class EventService {
     });
 
     await this.eventRepository.save(event);
+
     return {
       statusCode: HttpStatus.CREATED,
       success: true,
