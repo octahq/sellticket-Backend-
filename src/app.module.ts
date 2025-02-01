@@ -5,6 +5,7 @@ import { databaseConfig } from './config/db.config';
 import { EventModule } from './modules/event/event.module';
 import { CategoryModule } from './modules/category/category.module';
 import { CloudinaryProvider } from './modules/cloudinary/cloudinary.provider';
+import { TicketsModule } from './modules/tickets/tickets.module';
 
 @Module({
   imports: [
@@ -12,12 +13,14 @@ import { CloudinaryProvider } from './modules/cloudinary/cloudinary.provider';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => databaseConfig(configService),
+      useFactory: (configService: ConfigService) =>
+        databaseConfig(configService),
     }),
     EventModule,
     CategoryModule,
+    TicketsModule,
   ],
   providers: [CloudinaryProvider],
-  exports: [CloudinaryProvider]
+  exports: [CloudinaryProvider],
 })
 export class AppModule {}

@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   Logger,
+  HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,6 +18,7 @@ import {
   CreateTicketResaleDto,
 } from './dto';
 import { TicketStatus, TicketType } from './enums';
+import { ServiceResponse } from './interface/ticket.response';
 
 /**
  * Service handling all ticket-related operations including creation,
@@ -42,9 +44,11 @@ export class TicketsService {
    * @param createTicketDto - The ticket creation data
    * @throws {NotFoundException} When the event is not found
    * @throws {BadRequestException} When ticket type requirements are not met
-   * @returns {Promise<Ticket>} The created ticket
+   * @returns {Promise<ServiceResponse<Ticket>>} Response with created ticket
    */
-  async createTicket(createTicketDto: CreateTicketDto): Promise<Ticket> {
+  async createTicket(
+    createTicketDto: CreateTicketDto,
+  ): Promise<ServiceResponse<Ticket>> {
     this.logger.log(
       `Creating new ticket for event ${createTicketDto.eventId}`,
       { ticketData: createTicketDto },
@@ -70,7 +74,12 @@ export class TicketsService {
     const savedTicket = await this.ticketRepository.save(ticket);
     this.logger.log(`Successfully created ticket with ID ${savedTicket.id}`);
 
-    return savedTicket;
+    return {
+      statusCode: HttpStatus.CREATED,
+      success: true,
+      message: 'Ticket created successfully',
+      data: savedTicket,
+    };
   }
 
   /**
@@ -79,17 +88,17 @@ export class TicketsService {
    * @throws {NotFoundException} When the ticket is not found
    * @throws {BadRequestException} When purchase validation fails
    * @throws {ConflictException} When ticket is not available
-   * @returns {Promise<TicketPurchase>} The purchase record
+   * @returns {Promise<ServiceResponse<TicketPurchase>>} Response with purchase record
    */
   async purchaseTicket(
     createTicketPurchaseDto: CreateTicketPurchaseDto,
-  ): Promise<TicketPurchase> {
+  ): Promise<ServiceResponse<TicketPurchase>> {
     this.logger.log(
       `Processing ticket purchase for ticket ${createTicketPurchaseDto.ticketId}`,
       { purchaseData: createTicketPurchaseDto },
     );
 
-    const ticket = await this.findTicketById(createTicketPurchaseDto.ticketId);
+    const ticket = await this.getTicketById(createTicketPurchaseDto.ticketId);
     await this.validateTicketPurchase(ticket, createTicketPurchaseDto);
 
     const purchase = this.purchaseRepository.create({
@@ -107,7 +116,12 @@ export class TicketsService {
       `Successfully processed purchase with ID ${savedPurchase.id}`,
     );
 
-    return savedPurchase;
+    return {
+      statusCode: HttpStatus.CREATED,
+      success: true,
+      message: 'Ticket purchased successfully',
+      data: savedPurchase,
+    };
   }
 
   /**
@@ -115,17 +129,17 @@ export class TicketsService {
    * @param createTicketResaleDto - The resale listing details
    * @throws {NotFoundException} When the ticket is not found
    * @throws {BadRequestException} When resale validation fails
-   * @returns {Promise<TicketResale>} The created resale listing
+   * @returns {Promise<ServiceResponse<TicketResale>>} Response with resale listing
    */
   async createTicketResale(
     createTicketResaleDto: CreateTicketResaleDto,
-  ): Promise<TicketResale> {
+  ): Promise<ServiceResponse<TicketResale>> {
     this.logger.log(
       `Creating resale listing for ticket ${createTicketResaleDto.ticketId}`,
       { resaleData: createTicketResaleDto },
     );
 
-    const ticket = await this.findTicketById(createTicketResaleDto.ticketId);
+    const ticket = await this.getTicketById(createTicketResaleDto.ticketId);
     await this.validateTicketResale(ticket, createTicketResaleDto);
 
     const resale = this.resaleRepository.create({
@@ -138,57 +152,70 @@ export class TicketsService {
       `Successfully created resale listing with ID ${savedResale.id}`,
     );
 
-    return savedResale;
+    return {
+      statusCode: HttpStatus.CREATED,
+      success: true,
+      message: 'Ticket listed for resale successfully',
+      data: savedResale,
+    };
   }
 
   /**
    * Retrieves a ticket by its ID
    * @param id - The ticket's UUID
    * @throws {NotFoundException} When the ticket is not found
-   * @returns {Promise<Ticket>} The found ticket
+   * @returns {Promise<ServiceResponse<Ticket>>} Response with found ticket
    */
-  async findTicketById(id: string): Promise<Ticket> {
-    this.logger.log(`Retrieving ticket with ID ${id}`);
-
-    const ticket = await this.ticketRepository.findOne({
-      where: { id },
-      relations: ['event'],
-    });
-
-    if (!ticket) {
-      this.logger.error(`Ticket not found with ID ${id}`);
-      throw new NotFoundException(`Ticket with ID ${id} not found`);
-    }
-
-    return ticket;
+  async findTicketById(id: string): Promise<ServiceResponse<Ticket>> {
+    const ticket = await this.getTicketById(id);
+    return {
+      statusCode: HttpStatus.OK,
+      success: true,
+      message: 'Ticket retrieved successfully',
+      data: ticket,
+    };
   }
 
   /**
    * Retrieves all tickets
-   * @returns {Promise<Ticket[]>} Array of all tickets
+   * @returns {Promise<ServiceResponse<Ticket[]>>} Response with array of tickets
    */
-  async findAllTickets(): Promise<Ticket[]> {
+  async findAllTickets(): Promise<ServiceResponse<Ticket[]>> {
     this.logger.log('Retrieving all tickets');
     const tickets = await this.ticketRepository.find({
       relations: ['event'],
     });
     this.logger.log(`Found ${tickets.length} tickets`);
-    return tickets;
+
+    return {
+      statusCode: HttpStatus.OK,
+      success: true,
+      message: 'Tickets retrieved successfully',
+      data: tickets,
+    };
   }
 
   /**
    * Retrieves all tickets for a specific event
    * @param eventId - The event's ID
-   * @returns {Promise<Ticket[]>} Array of tickets for the event
+   * @returns {Promise<ServiceResponse<Ticket[]>>} Response with array of tickets
    */
-  async findTicketsByEvent(eventId: number): Promise<Ticket[]> {
+  async findTicketsByEvent(
+    eventId: number,
+  ): Promise<ServiceResponse<Ticket[]>> {
     this.logger.log(`Retrieving tickets for event ${eventId}`);
     const tickets = await this.ticketRepository.find({
       where: { eventId },
       relations: ['event'],
     });
     this.logger.log(`Found ${tickets.length} tickets for event ${eventId}`);
-    return tickets;
+
+    return {
+      statusCode: HttpStatus.OK,
+      success: true,
+      message: 'Event tickets retrieved successfully',
+      data: tickets,
+    };
   }
 
   /**
@@ -343,5 +370,20 @@ export class TicketsService {
         status: ticket.status,
       });
     }
+  }
+
+  // Private method for internal use
+  private async getTicketById(id: string): Promise<Ticket> {
+    const ticket = await this.ticketRepository.findOne({
+      where: { id },
+      relations: ['event'],
+    });
+
+    if (!ticket) {
+      this.logger.error(`Ticket not found with ID ${id}`);
+      throw new NotFoundException(`Ticket with ID ${id} not found`);
+    }
+
+    return ticket;
   }
 }

@@ -24,6 +24,9 @@ import {
 import { Ticket } from './entities/ticket.entity';
 import { TicketPurchase } from './entities/ticket.purchase.entity';
 import { TicketResale } from './entities/ticket.resale.entity';
+import { ServiceResponse } from './interface/ticket.response';
+import { TicketResponseDto } from './dto/ticket-response.dto';
+import { TicketsListResponseDto } from './dto/TicketsListResponseDto';
 
 @ApiTags('Tickets')
 @ApiBearerAuth()
@@ -36,7 +39,7 @@ export class TicketsController {
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Ticket has been successfully created',
-    type: Ticket,
+    type: TicketResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
@@ -48,7 +51,7 @@ export class TicketsController {
   })
   async createTicket(
     @Body() createTicketDto: CreateTicketDto,
-  ): Promise<Ticket> {
+  ): Promise<ServiceResponse<Ticket>> {
     return this.ticketsService.createTicket(createTicketDto);
   }
 
@@ -69,7 +72,7 @@ export class TicketsController {
   })
   async purchaseTicket(
     @Body() createTicketPurchaseDto: CreateTicketPurchaseDto,
-  ): Promise<TicketPurchase> {
+  ): Promise<ServiceResponse<TicketPurchase>> {
     return this.ticketsService.purchaseTicket(createTicketPurchaseDto);
   }
 
@@ -90,7 +93,7 @@ export class TicketsController {
   })
   async createTicketResale(
     @Body() createTicketResaleDto: CreateTicketResaleDto,
-  ): Promise<TicketResale> {
+  ): Promise<ServiceResponse<TicketResale>> {
     return this.ticketsService.createTicketResale(createTicketResaleDto);
   }
 
@@ -99,9 +102,9 @@ export class TicketsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Returns all tickets',
-    type: [Ticket],
+    type: TicketsListResponseDto,
   })
-  async findAllTickets(): Promise<Ticket[]> {
+  async findAllTickets(): Promise<ServiceResponse<Ticket[]>> {
     return this.ticketsService.findAllTickets();
   }
 
@@ -115,7 +118,7 @@ export class TicketsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Returns the ticket',
-    type: Ticket,
+    type: TicketResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -123,7 +126,7 @@ export class TicketsController {
   })
   async findTicketById(
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<Ticket> {
+  ): Promise<ServiceResponse<Ticket>> {
     return this.ticketsService.findTicketById(id);
   }
 
@@ -137,11 +140,11 @@ export class TicketsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Returns all tickets for the event',
-    type: [Ticket],
+    type: TicketsListResponseDto,
   })
   async findTicketsByEvent(
     @Param('eventId', ParseIntPipe) eventId: number,
-  ): Promise<Ticket[]> {
+  ): Promise<ServiceResponse<Ticket[]>> {
     return this.ticketsService.findTicketsByEvent(eventId);
   }
 }
