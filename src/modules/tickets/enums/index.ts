@@ -12,6 +12,7 @@ export enum TokenGatingType {
 export enum TicketStatus {
   AVAILABLE = 'available',
   SOLD = 'sold',
+  SOLD_OUT = 'sold-out',
   RESOLD = 'resold',
   SCANNED = 'scanned',
   CHECKED_IN = 'checked-in',

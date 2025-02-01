@@ -70,8 +70,8 @@ export class Ticket {
   @JoinColumn({ name: 'eventId' })
   event: Event;
 
-  @Column({ type: 'uuid' })
-  eventId: string;
+  @Column({ type: 'number' })
+  eventId: number;
 
   @OneToMany(() => TicketPurchase, (purchase) => purchase.ticket, {
     nullable: true,

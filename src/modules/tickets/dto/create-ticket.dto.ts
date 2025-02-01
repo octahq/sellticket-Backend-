@@ -5,7 +5,6 @@ import {
   IsNumber,
   IsBoolean,
   IsDateString,
-  IsUUID,
   Min,
   ValidateIf,
 } from 'class-validator';
@@ -140,9 +139,9 @@ export class CreateTicketDto {
   groupSize?: number;
 
   @ApiProperty({
-    example: '123e4567-e89b-12d3-a456-426614174000',
-    description: 'UUID of the event this ticket belongs to',
+    example: '1',
+    description: 'Id of the event this ticket belongs to',
   })
-  @IsUUID()
-  eventId: string;
+  @IsNumber()
+  eventId: number;
 }
