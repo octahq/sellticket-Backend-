@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { Category } from '../../category/entities/category.entity';
-import { Ticket } from 'src/modules/tickets/entities/ticket.entity';
+import { Ticket } from '../../tickets/entities/ticket.entity';
 
 export enum LocationType {
     Undisclosed = 'undisclosed',
