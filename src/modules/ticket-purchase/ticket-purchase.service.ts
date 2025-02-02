@@ -7,7 +7,9 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 import { Ticket } from '../tickets/entities/ticket.entity';
 import { TicketPurchase } from '../tickets/entities/ticket.purchase.entity';
 import { TicketResale } from '../tickets/entities/ticket.resale.entity';
@@ -15,11 +17,13 @@ import { CreateTicketPurchaseDto } from '../tickets/dto/create-ticket-purchase.d
 import { CreateTicketResaleDto } from '../tickets/dto/create-ticket-resale.dto';
 import { ServiceResponse } from '../tickets/interface/ticket.response';
 import { TicketStatus } from '../tickets/enums';
+import { PurchaseStatus } from './enums';
 
 @Injectable()
 export class TicketPurchaseService {
   private readonly logger = new Logger(TicketPurchaseService.name);
-
+  private readonly LOCK_TTL = 30;
+  private readonly PURCHASE_TIMEOUT = 10 * 60;
   constructor(
     @InjectRepository(Ticket)
     private readonly ticketRepository: Repository<Ticket>,
@@ -27,40 +31,79 @@ export class TicketPurchaseService {
     private readonly purchaseRepository: Repository<TicketPurchase>,
     @InjectRepository(TicketResale)
     private readonly resaleRepository: Repository<TicketResale>,
+    @InjectRedis() private readonly redis: Redis,
+    private readonly dataSource: DataSource,
   ) {}
 
   async purchaseTicket(
     createTicketPurchaseDto: CreateTicketPurchaseDto,
   ): Promise<ServiceResponse<TicketPurchase>> {
-    this.logger.log(
-      `Processing ticket purchase for ticket ${createTicketPurchaseDto.ticketId}`,
-      { purchaseData: createTicketPurchaseDto },
-    );
+    const { ticketId, quantity } = createTicketPurchaseDto;
+    const lockKey = `ticket:${ticketId}:lock`;
 
-    const ticket = await this.getTicketById(createTicketPurchaseDto.ticketId);
-    await this.validateTicketPurchase(ticket, createTicketPurchaseDto);
+    try {
+      // Try to acquire distributed lock
+      const locked = await this.acquireLock(lockKey);
+      if (!locked) {
+        throw new ConflictException('Ticket is currently being purchased');
+      }
 
-    const purchase = this.purchaseRepository.create({
-      ...createTicketPurchaseDto,
-      ticket,
-    });
+      // Start database transaction
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
 
-    await this.updateTicketAfterPurchase(
-      ticket,
-      createTicketPurchaseDto.quantity,
-    );
+      try {
+        const ticket = await queryRunner.manager.findOne(Ticket, {
+          where: { id: ticketId },
+          lock: { mode: 'pessimistic_write' },
+        });
 
-    const savedPurchase = await this.purchaseRepository.save(purchase);
-    this.logger.log(
-      `Successfully processed purchase with ID ${savedPurchase.id}`,
-    );
+        if (!ticket) {
+          throw new NotFoundException(`Ticket with ID ${ticketId} not found`);
+        }
 
-    return {
-      statusCode: HttpStatus.CREATED,
-      success: true,
-      message: 'Ticket purchased successfully',
-      data: savedPurchase,
-    };
+        await this.validateTicketPurchase(ticket, createTicketPurchaseDto);
+
+        const purchase = this.purchaseRepository.create({
+          ...createTicketPurchaseDto,
+          ticket,
+          status: PurchaseStatus.PENDING,
+        });
+
+        ticket.quantity -= quantity;
+        if (ticket.quantity === 0) {
+          ticket.status = TicketStatus.SOLD_OUT;
+        }
+
+        await queryRunner.manager.save(ticket);
+        const savedPurchase = await queryRunner.manager.save(purchase);
+
+        await this.setPurchaseTimeout(savedPurchase.id);
+
+        await queryRunner.commitTransaction();
+
+        this.logger.log(
+          `Successfully processed purchase with ID ${savedPurchase.id}`,
+        );
+
+        return {
+          statusCode: HttpStatus.CREATED,
+          success: true,
+          message: 'Ticket purchased successfully',
+          data: savedPurchase,
+        };
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+        throw error;
+      } finally {
+        await queryRunner.release();
+        await this.releaseLock(lockKey);
+      }
+    } catch (error) {
+      this.logger.error('Error processing ticket purchase', error.stack);
+      throw error;
+    }
   }
 
   async resellTicket(
@@ -197,30 +240,27 @@ export class TicketPurchaseService {
     this.logger.debug('Ticket resale validation successful');
   }
 
-  private async updateTicketAfterPurchase(
-    ticket: Ticket,
-    purchaseQuantity: number,
-  ): Promise<void> {
-    this.logger.debug('Updating ticket after purchase', {
-      ticketId: ticket.id,
-      purchaseQuantity,
-      currentQuantity: ticket.quantity,
-    });
+  private async acquireLock(key: string): Promise<boolean> {
+    const result = await this.redis.set(
+      key,
+      'locked',
+      'EX',
+      this.LOCK_TTL,
+      'NX',
+    );
+    return result === 'OK';
+  }
 
-    if (ticket.quantity) {
-      ticket.quantity -= purchaseQuantity;
+  private async releaseLock(key: string): Promise<void> {
+    await this.redis.del(key);
+  }
 
-      if (ticket.quantity === 0) {
-        ticket.status = TicketStatus.SOLD_OUT;
-        this.logger.log(`Ticket ${ticket.id} is now sold out`);
-      }
-
-      await this.ticketRepository.save(ticket);
-      this.logger.debug('Ticket updated successfully', {
-        ticketId: ticket.id,
-        newQuantity: ticket.quantity,
-        status: ticket.status,
-      });
-    }
+  private async setPurchaseTimeout(purchaseId: string): Promise<void> {
+    await this.redis.set(
+      `purchase:${purchaseId}:timeout`,
+      'pending',
+      'EX',
+      this.PURCHASE_TIMEOUT,
+    );
   }
 }
