@@ -16,14 +16,8 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { TicketsService } from './tickets.service';
-import {
-  CreateTicketDto,
-  CreateTicketPurchaseDto,
-  CreateTicketResaleDto,
-} from './dto';
+import { CreateTicketDto } from './dto';
 import { Ticket } from './entities/ticket.entity';
-import { TicketPurchase } from './entities/ticket.purchase.entity';
-import { TicketResale } from './entities/ticket.resale.entity';
 import { ServiceResponse } from './interface/ticket.response';
 import { TicketResponseDto } from './dto/ticket-response.dto';
 import { TicketsListResponseDto } from './dto/TicketsListResponseDto';
@@ -53,48 +47,6 @@ export class TicketsController {
     @Body() createTicketDto: CreateTicketDto,
   ): Promise<ServiceResponse<Ticket>> {
     return this.ticketsService.createTicket(createTicketDto);
-  }
-
-  @Post('purchase')
-  @ApiOperation({ summary: 'Purchase tickets' })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Tickets have been successfully purchased',
-    type: TicketPurchase,
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid purchase data or insufficient tickets',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Ticket not found',
-  })
-  async purchaseTicket(
-    @Body() createTicketPurchaseDto: CreateTicketPurchaseDto,
-  ): Promise<ServiceResponse<TicketPurchase>> {
-    return this.ticketsService.purchaseTicket(createTicketPurchaseDto);
-  }
-
-  @Post('resale')
-  @ApiOperation({ summary: 'List a ticket for resale' })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Ticket has been successfully listed for resale',
-    type: TicketResale,
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid resale data or resale not allowed',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Ticket not found',
-  })
-  async createTicketResale(
-    @Body() createTicketResaleDto: CreateTicketResaleDto,
-  ): Promise<ServiceResponse<TicketResale>> {
-    return this.ticketsService.createTicketResale(createTicketResaleDto);
   }
 
   @Get()

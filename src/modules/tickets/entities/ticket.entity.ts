@@ -10,8 +10,8 @@ import {
 } from 'typeorm';
 import { Event } from '../../event/entities/event.entity';
 import { TicketStatus, TicketType, TokenGatingType } from '../enums';
-import { TicketResale } from './ticket.resale.entity';
-import { TicketPurchase } from './ticket.purchase.entity';
+import { TicketPurchase } from '../../ticket-purchase/entities/ticket.purchase.entity';
+import { TicketResale } from '../../ticket-purchase/entities/ticket.resale.entity';
 
 @Entity('tickets')
 export class Ticket {
@@ -73,12 +73,10 @@ export class Ticket {
   @Column({ type: 'number' })
   eventId: number;
 
-  @OneToMany(() => TicketPurchase, (purchase) => purchase.ticket, {
-    nullable: true,
-  })
+  @OneToMany(() => TicketPurchase, (purchase) => purchase.ticket)
   purchases: TicketPurchase[];
 
-  @OneToMany(() => TicketResale, (resale) => resale.ticket, { nullable: true })
+  @OneToMany(() => TicketResale, (resale) => resale.ticket)
   resales: TicketResale[];
 
   @CreateDateColumn({ type: 'timestamp' })
