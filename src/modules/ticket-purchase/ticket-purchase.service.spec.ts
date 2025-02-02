@@ -43,7 +43,7 @@ describe('TicketPurchaseService', () => {
           useClass: Repository,
         },
         {
-          provide: Redis,
+          provide: 'default_IORedisModuleConnectionToken',
           useValue: {
             set: jest.fn(),
             del: jest.fn(),
@@ -78,7 +78,7 @@ describe('TicketPurchaseService', () => {
     resaleRepository = module.get<Repository<TicketResale>>(
       getRepositoryToken(TicketResale),
     );
-    redis = module.get<Redis>(Redis);
+    redis = module.get<Redis>('default_IORedisModuleConnectionToken');
     dataSource = module.get<DataSource>(DataSource);
   });
 
