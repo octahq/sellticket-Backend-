@@ -11,13 +11,13 @@ import { Repository, DataSource } from 'typeorm';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
 import { Ticket } from '../tickets/entities/ticket.entity';
-import { TicketPurchase } from '../tickets/entities/ticket.purchase.entity';
-import { TicketResale } from '../tickets/entities/ticket.resale.entity';
 import { CreateTicketPurchaseDto } from '../tickets/dto/create-ticket-purchase.dto';
 import { CreateTicketResaleDto } from '../tickets/dto/create-ticket-resale.dto';
 import { ServiceResponse } from '../tickets/interface/ticket.response';
 import { TicketStatus } from '../tickets/enums';
 import { PurchaseStatus } from './enums';
+import { TicketPurchase } from './entities/ticket.purchase.entity';
+import { TicketResale } from './entities/ticket.resale.entity';
 
 @Injectable()
 export class TicketPurchaseService {
@@ -42,13 +42,11 @@ export class TicketPurchaseService {
     const lockKey = `ticket:${ticketId}:lock`;
 
     try {
-      // Try to acquire distributed lock
       const locked = await this.acquireLock(lockKey);
       if (!locked) {
         throw new ConflictException('Ticket is currently being purchased');
       }
 
-      // Start database transaction
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
       await queryRunner.startTransaction();

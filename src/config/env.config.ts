@@ -12,6 +12,7 @@ const config = {
     user: process.env.DB_USER,
     url: process.env.DATABASE_URL,
   },
+  redis: process.env.REDIS_URL,
 };
 
 export default config;

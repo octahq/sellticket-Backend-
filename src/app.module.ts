@@ -8,13 +8,14 @@ import { CloudinaryProvider } from './modules/cloudinary/cloudinary.provider';
 import { TicketsModule } from './modules/tickets/tickets.module';
 import { TicketPurchaseModule } from './modules/ticket-purchase/ticket-purchase.module';
 import { RedisModule } from '@nestjs-modules/ioredis';
+import config from './config/env.config';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     RedisModule.forRoot({
       type: 'single',
-      url: 'redis://localhost:6379',
+      url: config.redis,
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -31,4 +32,3 @@ import { RedisModule } from '@nestjs-modules/ioredis';
   exports: [CloudinaryProvider],
 })
 export class AppModule {}
-

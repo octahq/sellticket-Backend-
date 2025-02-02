@@ -16,9 +16,10 @@ import {
 } from '@nestjs/swagger';
 import { TicketPurchaseService } from './ticket-purchase.service';
 import { CreateTicketPurchaseDto, CreateTicketResaleDto } from './dto';
-import { TicketPurchase } from './entities/ticket.purchase.entity';
 import { TicketResale } from './entities/ticket.resale.entity';
 import { ServiceResponse } from '../tickets/interface/ticket.response';
+import { TicketPurchaseResponseDto } from './dto/ticket-purchase-response.dto';
+import { TicketPurchase } from './entities/ticket.purchase.entity';
 
 @ApiTags('Ticket Purchases')
 @ApiBearerAuth()
@@ -31,7 +32,7 @@ export class TicketPurchaseController {
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Tickets have been successfully purchased',
-    type: TicketPurchase,
+    type: TicketPurchaseResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
