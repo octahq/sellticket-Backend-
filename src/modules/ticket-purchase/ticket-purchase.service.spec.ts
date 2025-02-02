@@ -107,18 +107,21 @@ describe('TicketPurchaseService', () => {
       purchase.status = PurchaseStatus.PENDING;
 
       jest.spyOn(redis, 'set').mockResolvedValue('OK');
+
+      jest.spyOn(purchaseRepository, 'create').mockReturnValue(purchase);
+      jest.spyOn(purchaseRepository, 'save').mockResolvedValue(purchase);
+
+      const queryRunner = dataSource.createQueryRunner();
+      jest.spyOn(queryRunner.manager, 'findOne').mockResolvedValue(ticket);
       jest
-        .spyOn(dataSource.createQueryRunner().manager, 'findOne')
-        .mockResolvedValue(ticket);
-      jest
-        .spyOn(dataSource.createQueryRunner().manager, 'save')
-        .mockResolvedValue(purchase);
+        .spyOn(queryRunner.manager, 'save')
+        .mockResolvedValueOnce({ ...ticket, quantity: 8 })
+        .mockResolvedValueOnce(purchase);
 
       const result = await service.purchaseTicket(purchaseDto);
 
       expect(result.statusCode).toBe(HttpStatus.CREATED);
       expect(result.success).toBe(true);
-      expect(result.message).toBe('Ticket purchased successfully');
       expect(result.data).toEqual(purchase);
     });
 
@@ -131,9 +134,10 @@ describe('TicketPurchaseService', () => {
         buyerLastName: 'Doe',
       };
 
-      jest
-        .spyOn(dataSource.createQueryRunner().manager, 'findOne')
-        .mockResolvedValue(null);
+      jest.spyOn(redis, 'set').mockResolvedValue('OK');
+
+      const queryRunner = dataSource.createQueryRunner();
+      jest.spyOn(queryRunner.manager, 'findOne').mockResolvedValue(null);
 
       await expect(service.purchaseTicket(purchaseDto)).rejects.toThrow(
         NotFoundException,

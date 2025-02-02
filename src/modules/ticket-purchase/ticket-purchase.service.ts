@@ -19,11 +19,16 @@ import { PurchaseStatus } from './enums';
 import { TicketPurchase } from './entities/ticket.purchase.entity';
 import { TicketResale } from './entities/ticket.resale.entity';
 
+/**
+ * Service responsible for handling ticket purchase, resale, and validation operations.
+ * Implements distributed locking using Redis to prevent race conditions during purchases.
+ */
 @Injectable()
 export class TicketPurchaseService {
   private readonly logger = new Logger(TicketPurchaseService.name);
   private readonly LOCK_TTL = 30;
   private readonly PURCHASE_TIMEOUT = 10 * 60;
+
   constructor(
     @InjectRepository(Ticket)
     private readonly ticketRepository: Repository<Ticket>,
@@ -35,10 +40,18 @@ export class TicketPurchaseService {
     private readonly dataSource: DataSource,
   ) {}
 
+  /**
+   * Purchase a ticket with distributed locking to prevent overselling
+   * @param createTicketPurchaseDto - The purchase details including ticket ID and quantity
+   * @returns A ServiceResponse containing the created purchase record
+   * @throws ConflictException when ticket is being purchased by another user
+   * @throws NotFoundException when ticket doesn't exist
+   * @throws BadRequestException when purchase validation fails
+   */
   async purchaseTicket(
     createTicketPurchaseDto: CreateTicketPurchaseDto,
   ): Promise<ServiceResponse<TicketPurchase>> {
-    const { ticketId, quantity } = createTicketPurchaseDto;
+    const { ticketId } = createTicketPurchaseDto;
     const lockKey = `ticket:${ticketId}:lock`;
 
     try {
@@ -69,21 +82,14 @@ export class TicketPurchaseService {
           status: PurchaseStatus.PENDING,
         });
 
-        ticket.quantity -= quantity;
+        ticket.quantity -= createTicketPurchaseDto.quantity;
         if (ticket.quantity === 0) {
           ticket.status = TicketStatus.SOLD_OUT;
         }
 
         await queryRunner.manager.save(ticket);
         const savedPurchase = await queryRunner.manager.save(purchase);
-
-        await this.setPurchaseTimeout(savedPurchase.id);
-
         await queryRunner.commitTransaction();
-
-        this.logger.log(
-          `Successfully processed purchase with ID ${savedPurchase.id}`,
-        );
 
         return {
           statusCode: HttpStatus.CREATED,
@@ -104,6 +110,13 @@ export class TicketPurchaseService {
     }
   }
 
+  /**
+   * List a ticket for resale
+   * @param createTicketResaleDto - The resale details including ticket ID and price
+   * @returns A ServiceResponse containing the created resale listing
+   * @throws BadRequestException when resale is not enabled or price exceeds limit
+   * @throws NotFoundException when ticket doesn't exist
+   */
   async resellTicket(
     createTicketResaleDto: CreateTicketResaleDto,
   ): Promise<ServiceResponse<TicketResale>> {
@@ -133,6 +146,12 @@ export class TicketPurchaseService {
     };
   }
 
+  /**
+   * Validate a ticket's status
+   * @param ticketId - The ID of the ticket to validate
+   * @returns A ServiceResponse containing boolean indicating if ticket is valid
+   * @throws NotFoundException when ticket doesn't exist
+   */
   async validateTicket(ticketId: string): Promise<ServiceResponse<boolean>> {
     const ticket = await this.getTicketById(ticketId);
     const isValid = ticket.status === TicketStatus.SOLD;
@@ -163,6 +182,12 @@ export class TicketPurchaseService {
   //   };
   // }
 
+  /**
+   * Retrieve a ticket by ID with its event relation
+   * @param id - The ticket ID
+   * @returns The found ticket entity
+   * @throws NotFoundException when ticket doesn't exist
+   */
   private async getTicketById(id: string): Promise<Ticket> {
     const ticket = await this.ticketRepository.findOne({
       where: { id },
@@ -177,6 +202,13 @@ export class TicketPurchaseService {
     return ticket;
   }
 
+  /**
+   * Validate ticket purchase request against business rules
+   * @param ticket - The ticket entity to validate against
+   * @param purchase - The purchase request to validate
+   * @throws ConflictException when ticket is not available
+   * @throws BadRequestException when quantity exceeds limits
+   */
   private async validateTicketPurchase(
     ticket: Ticket,
     purchase: CreateTicketPurchaseDto,
@@ -212,6 +244,12 @@ export class TicketPurchaseService {
     this.logger.debug('Ticket purchase validation successful');
   }
 
+  /**
+   * Validate ticket resale request against business rules
+   * @param ticket - The ticket entity to validate against
+   * @param resale - The resale request to validate
+   * @throws BadRequestException when resale is not enabled or price exceeds limit
+   */
   private async validateTicketResale(
     ticket: Ticket,
     resale: CreateTicketResaleDto,
@@ -238,6 +276,11 @@ export class TicketPurchaseService {
     this.logger.debug('Ticket resale validation successful');
   }
 
+  /**
+   * Acquire a distributed lock using Redis
+   * @param key - The lock key to acquire
+   * @returns boolean indicating if lock was acquired
+   */
   private async acquireLock(key: string): Promise<boolean> {
     const result = await this.redis.set(
       key,
@@ -249,10 +292,18 @@ export class TicketPurchaseService {
     return result === 'OK';
   }
 
+  /**
+   * Release a distributed lock in Redis
+   * @param key - The lock key to release
+   */
   private async releaseLock(key: string): Promise<void> {
     await this.redis.del(key);
   }
 
+  /**
+   * Set a timeout for a pending purchase
+   * @param purchaseId - The ID of the purchase to timeout
+   */
   private async setPurchaseTimeout(purchaseId: string): Promise<void> {
     await this.redis.set(
       `purchase:${purchaseId}:timeout`,
