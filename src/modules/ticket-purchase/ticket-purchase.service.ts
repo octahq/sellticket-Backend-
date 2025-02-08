@@ -8,8 +8,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { InjectRedis } from '@nestjs-modules/ioredis';
-import Redis from 'ioredis';
 import { Ticket } from '../tickets/entities/ticket.entity';
 import { CreateTicketPurchaseDto } from '../tickets/dto/create-ticket-purchase.dto';
 import { CreateTicketResaleDto } from '../tickets/dto/create-ticket-resale.dto';
@@ -18,6 +16,7 @@ import { TicketStatus } from '../tickets/enums';
 import { PurchaseStatus } from './enums';
 import { TicketPurchase } from './entities/ticket.purchase.entity';
 import { TicketResale } from './entities/ticket.resale.entity';
+import { RedisService } from '../../redis/redis.service';
 
 /**
  * Service responsible for handling ticket purchase, resale, and validation operations.
@@ -26,8 +25,6 @@ import { TicketResale } from './entities/ticket.resale.entity';
 @Injectable()
 export class TicketPurchaseService {
   private readonly logger = new Logger(TicketPurchaseService.name);
-  private readonly LOCK_TTL = 30;
-  private readonly PURCHASE_TIMEOUT = 10 * 60;
 
   constructor(
     @InjectRepository(Ticket)
@@ -36,7 +33,7 @@ export class TicketPurchaseService {
     private readonly purchaseRepository: Repository<TicketPurchase>,
     @InjectRepository(TicketResale)
     private readonly resaleRepository: Repository<TicketResale>,
-    @InjectRedis() private readonly redis: Redis,
+    private readonly redisService: RedisService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -55,7 +52,7 @@ export class TicketPurchaseService {
     const lockKey = `ticket:${ticketId}:lock`;
 
     try {
-      const locked = await this.acquireLock(lockKey);
+      const locked = await this.redisService.acquireLock(lockKey);
       if (!locked) {
         throw new ConflictException('Ticket is currently being purchased');
       }
@@ -102,7 +99,7 @@ export class TicketPurchaseService {
         throw error;
       } finally {
         await queryRunner.release();
-        await this.releaseLock(lockKey);
+        await this.redisService.releaseLock(lockKey);
       }
     } catch (error) {
       this.logger.error('Error processing ticket purchase', error.stack);
@@ -153,8 +150,12 @@ export class TicketPurchaseService {
    * @throws NotFoundException when ticket doesn't exist
    */
   async validateTicket(ticketId: string): Promise<ServiceResponse<boolean>> {
+    this.logger.log(`Validating ticket with ID ${ticketId}`);
+
     const ticket = await this.getTicketById(ticketId);
+
     const isValid = ticket.status === TicketStatus.SOLD;
+    this.logger.log(`Ticket ${ticketId} is valid: ${isValid}`);
 
     return {
       statusCode: HttpStatus.OK,
@@ -164,14 +165,17 @@ export class TicketPurchaseService {
     };
   }
 
-  // async getUserTickets(
-  //   userId: string,
-  // ): Promise<ServiceResponse<TicketPurchase[]>> {
+  // /**
+  //  * Retrieve all purchases for a user
+  //  * @param userId - The ID of the user
+  //  * @returns A ServiceResponse containing array of purchases
+  //  */
+  // async getUserTickets(userId: string): Promise<ServiceResponse<TicketPurchase[]>> {
   //   this.logger.log(`Retrieving tickets for user ${userId}`);
 
   //   const purchases = await this.purchaseRepository.find({
   //     where: { userId },
-  //     relations: ['ticket', 'ticket.event'],
+  //     relations: ['ticket'],
   //   });
 
   //   return {
@@ -274,42 +278,5 @@ export class TicketPurchaseService {
     }
 
     this.logger.debug('Ticket resale validation successful');
-  }
-
-  /**
-   * Acquire a distributed lock using Redis
-   * @param key - The lock key to acquire
-   * @returns boolean indicating if lock was acquired
-   */
-  private async acquireLock(key: string): Promise<boolean> {
-    const result = await this.redis.set(
-      key,
-      'locked',
-      'EX',
-      this.LOCK_TTL,
-      'NX',
-    );
-    return result === 'OK';
-  }
-
-  /**
-   * Release a distributed lock in Redis
-   * @param key - The lock key to release
-   */
-  private async releaseLock(key: string): Promise<void> {
-    await this.redis.del(key);
-  }
-
-  /**
-   * Set a timeout for a pending purchase
-   * @param purchaseId - The ID of the purchase to timeout
-   */
-  private async setPurchaseTimeout(purchaseId: string): Promise<void> {
-    await this.redis.set(
-      `purchase:${purchaseId}:timeout`,
-      'pending',
-      'EX',
-      this.PURCHASE_TIMEOUT,
-    );
   }
 }

@@ -12,7 +12,12 @@ const config = {
     user: process.env.DB_USER,
     url: process.env.DATABASE_URL,
   },
-  redis: process.env.REDIS_URL,
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD || '',
+    url: process.env.REDIS_URL,
+  },
 };
 
 export default config;
