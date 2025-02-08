@@ -17,6 +17,11 @@ import { PurchaseStatus } from './enums';
 import { TicketPurchase } from './entities/ticket.purchase.entity';
 import { TicketResale } from './entities/ticket.resale.entity';
 import { RedisService } from '../../redis/redis.service';
+import { PaymentService } from '../payment/payment.service';
+import { ProcessPaymentDto } from '../payment/dto/process-payment.dto';
+import { PaymentMethod } from '../payment/enums/payment-method.enum';
+import { PaymentStatus } from '../payment/enums/payment-status.enum';
+import { OnEvent } from '@nestjs/event-emitter';
 
 /**
  * Service responsible for handling ticket purchase, resale, and validation operations.
@@ -35,6 +40,7 @@ export class TicketPurchaseService {
     private readonly resaleRepository: Repository<TicketResale>,
     private readonly redisService: RedisService,
     private readonly dataSource: DataSource,
+    private readonly paymentService: PaymentService,
   ) {}
 
   /**
@@ -48,7 +54,7 @@ export class TicketPurchaseService {
   async purchaseTicket(
     createTicketPurchaseDto: CreateTicketPurchaseDto,
   ): Promise<ServiceResponse<TicketPurchase>> {
-    const { ticketId } = createTicketPurchaseDto;
+    const { ticketId, buyerEmail, quantity } = createTicketPurchaseDto;
     const lockKey = `ticket:${ticketId}:lock`;
 
     try {
@@ -73,6 +79,23 @@ export class TicketPurchaseService {
 
         await this.validateTicketPurchase(ticket, createTicketPurchaseDto);
 
+        const paymentDto: ProcessPaymentDto = {
+          amount: ticket.basePrice * quantity * 100,
+          currency: 'NGN',
+          email: buyerEmail,
+          paymentMethod: PaymentMethod.CREDIT_CARD,
+        };
+
+        const paymentResult =
+          await this.paymentService.processPayment(paymentDto);
+
+        if (paymentResult.status === PaymentStatus.FAILED) {
+          await queryRunner.rollbackTransaction();
+          throw new BadRequestException(
+            `Payment initialization failed: ${paymentResult.message}`,
+          );
+        }
+
         const purchase = this.purchaseRepository.create({
           ...createTicketPurchaseDto,
           ticket,
@@ -91,7 +114,8 @@ export class TicketPurchaseService {
         return {
           statusCode: HttpStatus.CREATED,
           success: true,
-          message: 'Ticket purchased successfully',
+          message:
+            'Ticket purchase initiated, waiting for payment confirmation.',
           data: savedPurchase,
         };
       } catch (error) {
@@ -104,6 +128,87 @@ export class TicketPurchaseService {
     } catch (error) {
       this.logger.error('Error processing ticket purchase', error.stack);
       throw error;
+    }
+  }
+
+  @OnEvent('payment.webhook.success')
+  async handlePaymentWebhookSuccess(payload: { paymentReference: string }) {
+    this.logger.log(
+      `Payment webhook success event received for reference: ${payload.paymentReference}`,
+    );
+    try {
+      const paymentReference = payload.paymentReference;
+      const payment =
+        await this.paymentService.findPaymentByReference(paymentReference);
+
+      if (!payment) {
+        this.logger.warn(
+          `Payment record not found for reference: ${paymentReference} during webhook success event handling.`,
+        );
+        return;
+      }
+
+      const purchase = await this.purchaseRepository.findOne({
+        where: { buyerEmail: payment.email, status: PurchaseStatus.PENDING },
+        relations: ['ticket'],
+      });
+
+      if (purchase) {
+        purchase.status = PurchaseStatus.COMPLETED;
+        await this.purchaseRepository.save(purchase);
+        this.logger.log(
+          `TicketPurchase status updated to COMPLETED for payment reference: ${paymentReference}, purchase ID: ${purchase.id}`,
+        );
+      } else {
+        this.logger.warn(
+          `TicketPurchase record not found for payment reference: ${paymentReference} during webhook success event handling.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error handling payment webhook success event for reference ${payload.paymentReference}:`,
+        error.stack,
+      );
+    }
+  }
+
+  @OnEvent('payment.webhook.failed')
+  async handlePaymentWebhookFailed(payload: { paymentReference: string }) {
+    this.logger.log(
+      `Payment webhook failed event received for reference: ${payload.paymentReference}`,
+    );
+    try {
+      const paymentReference = payload.paymentReference;
+      const payment =
+        await this.paymentService.findPaymentByReference(paymentReference);
+
+      if (!payment) {
+        this.logger.warn(
+          `Payment record not found for reference: ${paymentReference} during webhook failed event handling.`,
+        );
+        return;
+      }
+
+      const purchase = await this.purchaseRepository.findOne({
+        where: { buyerEmail: payment.email, status: PurchaseStatus.PENDING },
+      });
+
+      if (purchase) {
+        purchase.status = PurchaseStatus.CANCELLED;
+        await this.purchaseRepository.save(purchase);
+        this.logger.log(
+          `TicketPurchase status updated to CANCELLED due to payment failure for payment reference: ${paymentReference}, purchase ID: ${purchase.id}`,
+        );
+      } else {
+        this.logger.warn(
+          `TicketPurchase record not found for payment reference: ${paymentReference} during webhook failed event handling.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error handling payment webhook failed event for reference ${payload.paymentReference}:`,
+        error.stack,
+      );
     }
   }
 

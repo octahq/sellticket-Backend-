@@ -6,6 +6,7 @@ import { Ticket } from '../tickets/entities/ticket.entity';
 import { TicketPurchase } from './entities/ticket.purchase.entity';
 import { TicketResale } from './entities/ticket.resale.entity';
 import { RedisModule } from '../../redis/redis.module';
+import { PaymentModule } from '../payment/payment.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { RedisModule } from '../../redis/redis.module';
       host: 'localhost',
       port: 6379,
     }),
+    PaymentModule,
   ],
   controllers: [TicketPurchaseController],
   providers: [TicketPurchaseService],
