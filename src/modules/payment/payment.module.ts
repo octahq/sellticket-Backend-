@@ -7,12 +7,17 @@ import { Transaction } from './entities/transaction.entity';
 import { PaymentWebhookController } from './payment-webhook.controller';
 import { HttpModule } from '@nestjs/axios';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { RedisModule } from '../../redis/redis.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Payment, Transaction]),
     HttpModule,
     EventEmitterModule.forRoot(),
+    RedisModule.register({
+      host: 'localhost',
+      port: 6379,
+    }),
   ],
   controllers: [PaymentWebhookController],
   providers: [PaymentService, ConfigService],
