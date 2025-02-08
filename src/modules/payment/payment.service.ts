@@ -100,6 +100,25 @@ export class PaymentService {
 
   async processPaystackWebhookEvent(event: any): Promise<void> {
     this.logger.log(`Processing Paystack webhook event: ${event.event}`);
+
+    const signature = event.headers['x-paystack-signature'];
+    if (!signature) {
+      this.logger.warn('No signature found on Paystack webhook request');
+      throw new Error('No signature found on Paystack webhook request');
+    }
+
+    const rawBody = JSON.stringify(event.body);
+    const isValidSignature = this.verifyPaystackWebhookSignature(
+      rawBody,
+      signature,
+      this.paystackWebhookSecret,
+    );
+
+    if (!isValidSignature) {
+      this.logger.warn('Invalid signature on Paystack webhook request');
+      throw new Error('Invalid signature on Paystack webhook request');
+    }
+
     await this.dataSource.transaction(async (transactionalEntityManager) => {
       try {
         if (event.event === 'transaction.success') {
