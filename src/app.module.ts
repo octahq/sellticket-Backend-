@@ -5,6 +5,7 @@ import { databaseConfig } from './config/db.config';
 import { EventModule } from './modules/event/event.module';
 import { CategoryModule } from './modules/category/category.module';
 import { CloudinaryProvider } from './modules/cloudinary/cloudinary.provider';
+import { QueueModule } from './modules/queue/queue.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { CloudinaryProvider } from './modules/cloudinary/cloudinary.provider';
     }),
     EventModule,
     CategoryModule,
+    QueueModule
   ],
   providers: [CloudinaryProvider],
   exports: [CloudinaryProvider]

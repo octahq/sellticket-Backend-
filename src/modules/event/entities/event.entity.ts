@@ -45,6 +45,9 @@ export class Event {
   @Column({ default: false }) // ✅ New field: Does the guest pay the event fees?
   guestPaysFees: boolean;
 
+  @Column({ default: false })
+  isDraft: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 
