@@ -10,6 +10,7 @@ import { TicketPurchaseModule } from './modules/ticket-purchase/ticket-purchase.
 import { RedisModule } from './redis/redis.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { QueueModule } from './modules/queue/queue.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { APP_GUARD } from '@nestjs/core';
     CategoryModule,
     TicketsModule,
     TicketPurchaseModule,
+    QueueModule
   ],
   providers: [
     CloudinaryProvider,
