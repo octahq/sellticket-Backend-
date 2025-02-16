@@ -1,8 +1,10 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { MailerService } from '@nestjs-modules/mailer';
+import { JwtService } from '@nestjs/jwt';
 import { Address } from 'viem';
-import { generatePrivateKey, privateKeyToAccount } from 'viem';
 import { KeyStoreService } from './keystore.service';
+import { CustomAuthSigner } from './custom-auth.signer';
+import { AccountClientFactory } from './account-client.factory';
 
 @Injectable()
 export class AuthService {
@@ -10,17 +12,11 @@ export class AuthService {
 
   constructor(
     private keyStoreService: KeyStoreService,
-    private mailerService: MailerService
+    private mailerService: MailerService,
+    private authSigner: CustomAuthSigner,
+    private jwtService: JwtService,
+    private accountClientFactory: AccountClientFactory
   ) {}
-
-  generateSessionKey() {
-    const privateKey = generatePrivateKey();
-    const account = privateKeyToAccount(privateKey);
-    return {
-      privateKey,
-      address: account.address
-    };
-  }
 
   async initiateEmailOTP(email: string) {
     const otp = this.generateOTP();
@@ -42,32 +38,71 @@ export class AuthService {
       throw new UnauthorizedException('Invalid OTP');
     }
     
-    if (Date.now() - storedData.timestamp > 300000) {
+    if (Date.now() - storedData.timestamp > 300000) { // 5 minutes
       throw new UnauthorizedException('OTP expired');
     }
 
-    let keys = this.keyStoreService.getKeys(email);
-    if (!keys) {
-      const ownerAccount = privateKeyToAccount(generatePrivateKey());
-      const sessionKey = this.generateSessionKey();
-      
-      keys = {
-        ownerPrivateKey: ownerAccount.privateKey,
-        walletAddress: ownerAccount.address,
-        sessionPrivateKey: sessionKey.privateKey,
-        sessionKeyAddress: sessionKey.address,
-        permissions: {}
-      };
-      
-      this.keyStoreService.storeKeys(email, keys);
+    let isNewUser = false;
+    let walletAddress: Address;
+    let accountAddress: string;
+
+    // Check if user exists
+    const existingKeys = this.keyStoreService.getKeys(email);
+
+    if (!existingKeys) {
+      // New user - generate new private key using CustomAuthSigner
+      isNewUser = true;
+      const { privateKey } = this.authSigner.generatePrivateKeyAndSigner();
+      walletAddress = await this.authSigner.getAddress();
+
+      // Create modular account using the CustomAuthSigner
+      console.log(`Creating modular account for new user: ${email}`);
+      const client = await this.accountClientFactory.createClient(email);
+      accountAddress = client.getAddress({ account: client.account });
+      console.log(`Modular account created: ${accountAddress}`);
+
+      // Update stored keys with account address
+      await this.keyStoreService.updateKeys(email, {
+        accountAddress
+      });
+
+      console.log(`New user wallet and account created: ${walletAddress}`);
+    } else {
+      // Existing user - set up signer with stored private key
+      console.log(`Setting up signer for existing user: ${email}`);
+      // setupup the signer with the email and save as the signer
+      await this.accountClientFactory.setupAuthSigner(email);
+      //To do: get the address of the wallet
+      //To do: setup the signer with the email
+     
+      console.log(`Existing user signer initialized: ${walletAddress}`);
     }
 
     this.otpStore.delete(email);
-    
+
+    // Generate JWT token
+    const token = this.generateAuthToken({
+      email,
+      walletAddress,
+      accountAddress,
+      timestamp: Date.now()
+    });
+
     return {
-      walletAddress: keys.walletAddress as Address,
-      sessionKeyAddress: keys.sessionKeyAddress as Address
+      walletAddress,
+      accountAddress,
+      isNewUser,
+      message: isNewUser ? 'New wallet and account generated successfully' : 'Authenticated successfully',
+      token
     };
+  }
+
+  private generateAuthToken(payload: any) {
+    return this.jwtService.sign(payload, {
+      expiresIn: '1h',
+      subject: payload.email,
+      issuer: 'sellticket-auth'
+    });
   }
 
   private generateOTP(): string {

@@ -1,7 +1,7 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
-import { Address, Hex, SignableMessage, TypedData, TypedDataDefinition, hashMessage, hashTypedData, serializeAuthorization, toHex } from 'viem';
+import { Address, Hex, SignableMessage, TypedData, TypedDataDefinition, generatePrivateKey } from 'viem';
 import { Authorization } from 'viem/experimental';
-import { sign } from '@noble/ed25519';
+import { LocalAccountSigner } from '@aa-sdk/core';
 import { SmartAccountSigner, AuthDetails, AuthParams } from './types';
 import { KeyStoreService } from './keystore.service';
 
@@ -14,13 +14,35 @@ export class CustomAuthSigner implements SmartAccountSigner {
 
   constructor(private keyStoreService: KeyStoreService) {}
 
+  // Method to get private key by email
+  async getPrivateKeyForEmail(email: string): Promise<string | null> {
+    const keys = this.keyStoreService.getKeys(email);
+    return keys ? keys.privateKey : null;
+  }
+
+  // Generate new signer with new private key
+  generateSigner() {
+    const privateKey = generatePrivateKey();
+    this.inner = LocalAccountSigner.privateKeyToAccountSigner(privateKey);
+    return {
+      privateKey
+    };
+  }
+
+  // Set up existing signer with stored private key
+  useSigner(privateKey: string) {
+    this.inner = LocalAccountSigner.privateKeyToAccountSigner(privateKey);
+  }
+
   async authenticate(params: AuthParams): Promise<AuthDetails> {
     const keys = this.keyStoreService.getKeys(params.email);
     if (!keys) throw new ForbiddenException('Authentication failed');
 
+    this.useSigner(keys.privateKey);
+
     this.currentAuthDetails = {
       email: params.email,
-      walletAddress: keys.walletAddress as Address,
+      walletAddress: await this.getAddress() as Address,
       sessionKeyAddress: keys.sessionKeyAddress as Address,
       timestamp: Date.now()
     };
@@ -29,42 +51,27 @@ export class CustomAuthSigner implements SmartAccountSigner {
   }
 
   async getAddress(): Promise<Address> {
-    const authDetails = await this.getAuthDetails();
-    return authDetails.sessionKeyAddress;
+    if (!this.inner) throw new ForbiddenException('Not authenticated');
+    return this.inner.getAddress();
   }
 
   async signMessage(message: SignableMessage): Promise<Hex> {
-    const authDetails = await this.getAuthDetails();
-    const keys = this.keyStoreService.getKeys(authDetails.email);
-    if (!keys) throw new ForbiddenException('Session expired');
-
-    const messageHash = hashMessage(message);
-    const signature = await sign(messageHash, keys.sessionPrivateKey);
-    return toHex(signature);
+    if (!this.inner) throw new ForbiddenException('Not authenticated');
+    return this.inner.signMessage(message);
   }
 
   async signTypedData<TTypedData extends TypedData, TPrimaryType extends keyof TTypedData>(
     params: TypedDataDefinition<TTypedData, TPrimaryType>
   ): Promise<Hex> {
-    const authDetails = await this.getAuthDetails();
-    const keys = this.keyStoreService.getKeys(authDetails.email);
-    if (!keys) throw new ForbiddenException('Session expired');
-
-    const hash = hashTypedData(params);
-    const signature = await sign(hash, keys.sessionPrivateKey);
-    return toHex(signature);
+    if (!this.inner) throw new ForbiddenException('Not authenticated');
+    return this.inner.signTypedData(params);
   }
 
   async signAuthorization(
     unsignedAuthorization: Authorization<number, false>
   ): Promise<Authorization<number, true>> {
-    const authDetails = await this.getAuthDetails();
-    const keys = this.keyStoreService.getKeys(authDetails.email);
-    if (!keys) throw new ForbiddenException('Session expired');
-
-    const serialized = serializeAuthorization(unsignedAuthorization);
-    const signature = await sign(serialized, keys.sessionPrivateKey);
-    return { ...unsignedAuthorization, signature: toHex(signature) };
+    if (!this.inner) throw new ForbiddenException('Not authenticated');
+    return this.inner.signAuthorization(unsignedAuthorization);
   }
 
   private async getAuthDetails(): Promise<AuthDetails> {

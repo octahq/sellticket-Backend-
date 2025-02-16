@@ -15,10 +15,11 @@ export interface AuthParams {
 }
 
 export interface KeyStoreData {
-  ownerPrivateKey: string;
-  walletAddress: string;
-  sessionPrivateKey: string;
-  sessionKeyAddress: string;
+  privateKey: string;        // Owner wallet private key
+  walletAddress: string;     // Owner wallet address
+  accountAddress: string;    // Modular account address
+  sessionKeyData: any;       // Session key data
+  sessionKeyAddress: string; // Session key address
   permissions: Record<string, boolean>;
 }
 
