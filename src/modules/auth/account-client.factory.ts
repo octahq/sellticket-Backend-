@@ -1,65 +1,86 @@
+// account.factory.ts
 import { Injectable } from '@nestjs/common';
-import { SessionKeySigner } from '@account-kit/smart-contracts';
+import { createModularAccountAlchemyClient, alchemy } from '@alchemy/aa-core';
+import { sessionKeyPluginActions, SessionKeyPlugin, SessionKeyPermissionsBuilder } from '@account-kit/smart-contracts';
 import { CustomAuthSigner } from './custom-auth.signer';
 import { ConfigService } from '@nestjs/config';
-import { KeyStoreService } from './keystore.service';
-import { createModularAccountAlchemyClient, alchemy } from '@alchemy/aa-core';
-import { sessionKeyPluginActions } from '@alchemy/aa-session-key';
 
+/**
+ * Factory for creating Alchemy Account clients with session management
+ */
 @Injectable()
-export class AccountClientFactory {
+export class AccountFactory {
   constructor(
-    private readonly authSigner: CustomAuthSigner,
-    private readonly configService: ConfigService,
-    private readonly keyStoreService: KeyStoreService
+    private config: ConfigService,
+    private authSigner: CustomAuthSigner
   ) {}
 
-  async setupAuthSigner(email: string) {
-    // First try to get existing private key
-    let privateKey = await this.authSigner.getPrivateKeyForEmail(email);
-
-    if (!privateKey) {
-      // No key found - generate new signer and save to keystore
-      console.log('No existing key found - generating new signer for:', email);
-      const { privateKey: newKey } = this.authSigner.generateSigner();
-      
-      // Save to keystore mapped to email
-      await this.keyStoreService.storeKeys(email, {
-        privateKey: newKey,
-        walletAddress: await this.authSigner.getAddress(),
-        accountAddress: null,
-        sessionKeyData: null,
-        sessionKeyAddress: null,
-        permissions: {}
-      });
-      
-      privateKey = newKey;
-    } else {
-      // Use existing key
-      this.authSigner.useSigner(privateKey);
-    }
-
-    return this.authSigner;
-  }
-
-  async createSessionKey() {
-    const sessionKeySigner = new SessionKeySigner();
-    return sessionKeySigner;
-  }
-
+  /**
+   * Create authenticated Alchemy client
+   * @param email - User's email address
+   * @returns Promise<any> - Configured Alchemy client
+   */
   async createClient(email: string) {
-    // Set up the auth signer for this email
-    const signer = await this.setupAuthSigner(email);
-
-    // Create the client with the configured signer
+    // Ensure authentication
+    await this.authSigner.getAddress();
+    
+    // Create base client
     const client = await createModularAccountAlchemyClient({
-      chain: this.chain,
-      transport: alchemy({ apiKey: process.env.ALCHEMY_API_KEY }),
-      signer,
+      chain: this.config.get('CHAIN_NETWORK', 'sepolia'),
+      transport: alchemy(this.config.get('ALCHEMY_KEY')),
+      signer: this.authSigner
     });
 
-    const extendedClient = client.extend(sessionKeyPluginActions);
-
-    // ... rest of the code ...
+    return this.extendWithSessionSupport(client);
   }
-} 
+
+  /**
+   * Extend client with session key support
+   * @param client - Base Alchemy client
+   * @returns Promise<any> - Extended client
+   */
+  private async extendWithSessionSupport(client: any) {
+    const extendedClient = client.extend(sessionKeyPluginActions);
+    
+    // Install plugin if not present
+    if (!await this.isPluginInstalled(extendedClient)) {
+      await this.installSessionPlugin(extendedClient);
+    }
+
+    return extendedClient;
+  }
+
+  /**
+   * Check if session key plugin is installed
+   * @param client - Alchemy client
+   * @returns Promise<boolean> - Installation status
+   */
+  private async isPluginInstalled(client: any): Promise<boolean> {
+    const plugins = await client.getInstalledPlugins();
+    return plugins.includes(SessionKeyPlugin.meta.addresses[client.chain.id]);
+  }
+
+  /**
+   * Install session key plugin
+   * @param client - Alchemy client
+   */
+  private async installSessionPlugin(client: any) {
+    const sessionSigner = await this.authSigner.createSessionKey();
+    
+    // Define default permissions
+    const permissions = new SessionKeyPermissionsBuilder()
+      .setNativeTokenSpendLimit({ spendLimit: BigInt(1_000_000) })
+      .encode();
+
+    // Execute plugin installation
+    const { hash } = await client.installSessionKeyPlugin({
+      args: [
+        [await sessionSigner.getAddress()],
+        ['0x'], // Empty tag array
+        [permissions]
+      ]
+    });
+    
+    await client.waitForUserOperationTransaction({ hash });
+  }
+}

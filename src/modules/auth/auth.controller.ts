@@ -1,37 +1,44 @@
-import { Controller, Post, Get, Body, Param } from '@nestjs/common';
+// auth.controller.ts
+import { Controller, Post, Body } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { KeyStoreService } from './keystore.service';
 import { CustomAuthSigner } from './custom-auth.signer';
+import { AccountFactory } from './account.factory';
 
+/**
+ * Authentication controller handling HTTP endpoints
+ */
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly keyStoreService: KeyStoreService,
-    private readonly authSigner: CustomAuthSigner
+    private readonly authSigner: CustomAuthSigner,
+    private readonly accountFactory: AccountFactory
   ) {}
 
-  @Post('initiate-otp')
-  async initiateOTP(@Body('email') email: string) {
-    return this.authService.initiateEmailOTP(email);
+  /**
+   * Initiate OTP flow endpoint
+   * @param email - User's email address
+   * @returns Promise<{ status: string }>
+   */
+  @Post('initiate')
+  async initiate(@Body('email') email: string) {
+    await this.authService.initiateOTP(email);
+    return { status: 'OTP sent' };
   }
 
-  @Post('verify-otp')
-  async verifyOTP(@Body('email') email: string, @Body('otp') otp: string) {
-    const result = await this.authService.verifyOTP(email, otp);
-    return { 
-      sessionKeyAddress: result.sessionKeyAddress,
-      walletAddress: result.walletAddress 
-    };
-  }
-
-  @Get('session/:email')
-  getSession(@Param('email') email: string) {
-    const keys = this.keyStoreService.getKeys(email);
-    if (!keys) throw new Error('Session not found');
+  /**
+   * Verify OTP and return session details
+   * @param body - { email: string, otp: string }
+   * @returns Promise<{ success: boolean, walletAddress: Address, sessionKeys: SessionKey[] }>
+   */
+  @Post('verify')
+  async verify(@Body() { email, otp }: { email: string; otp: string }) {
+    await this.authSigner.authenticate({ email, otp });
+    const client = await this.accountFactory.createClient(email);
     return {
-      sessionKeyAddress: keys.sessionKeyAddress,
-      walletAddress: keys.walletAddress
+      success: true,
+      walletAddress: await this.authSigner.getAddress(),
+      sessionKeys: (await this.authSigner.getAuthDetails()).sessionKeys
     };
   }
-} 
+}

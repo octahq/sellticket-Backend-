@@ -1,202 +1,147 @@
-
-# Email OTP Authentication with Session Keys
-
-This documentation explains how the system works, the user journey, and how session keys replace traditional JWT tokens for authentication. It is designed for a NestJS engineer who may not have blockchain expertise.
+# Documentation: Email OTP Authentication System with Alchemy Account Kit Integration
 
 ## Overview
+This system provides secure email-based authentication using one-time passwords (OTPs) paired with Alchemy's Account Kit for smart account management. It implements a non-custodial wallet system where users authenticate via OTP while maintaining full control of their cryptographic keys.
 
-The system provides a secure authentication flow using email OTP (One-Time Password) and leverages session keys for blockchain-based authentication. Session keys are temporary cryptographic keys that enable users to interact securely with blockchain applications without exposing their main wallet credentials.
+## Key Components
 
-## Key Concepts
+### 1. Core Types (`types.ts`)
+Defines data structures for:
+- **Authentication Parameters**: `{ email, otp }`
+- **Session Details**: Contains wallet address, session keys, and timestamps
+- **Cryptographic Types**: Ethereum address and hex string type guards
+- **Session Keys**: Permissioned keys with expiration times
 
-### 1. Email OTP Authentication
-- Users authenticate by entering their email and a 6-digit OTP sent to their email
-- The OTP is valid for 5 minutes and can only be used once
+### 2. Keystore Service (`keystore.service.ts`)
+- **In-Memory Session Storage** (production should use secure persistent storage)
+- **Mnemonic Generation**: Uses `viem`'s cryptographically secure method
+- **OTP Management**: Generates 6-digit codes with 5-minute expiration
+- **Session Key Storage**: Maintains active session keys per user
 
-### 2. Session Keys
-- A session key is a temporary cryptographic key generated for each user session
-- It allows users to sign transactions and interact with the blockchain securely
-- Session keys have limited permissions (e.g., spending limits, expiration times) for enhanced security
+### 3. Authentication Signer (`custom-auth.signer.ts`)
+Implements Alchemy's `SmartAccountAuthenticator` interface:
+- **OTP Verification**: Validates email/OTP combinations
+- **Mnemonic Wallet**: Derives keys from BIP-39 mnemonics
+- **Session Key Generation**: Creates limited-access keys via `SessionKeySigner`
+- **Signing Operations**: Full EIP-712 and message signing capabilities
 
-### 3. Modular Account V2
-- A smart contract wallet that supports session keys and advanced permission management
-- Deployed on the Sepolia testnet (Ethereum test network)
+### 4. Account Factory (`account.factory.ts`)
+Handles Alchemy Account Kit integration:
+- **Modular Account Creation**: Uses `@alchemy/aa-core`
+- **Session Key Plugin**: Auto-installs session management plugin
+- **Permission Management**: Default spend limits and access controls
 
-### 4. Why Use Session Keys Instead of JWTs?
+### 5. Authentication Service (`auth.service.ts`)
+Orchestrates the OTP workflow:
+- **Email Delivery**: Integrates with NestJS Mailer
+- **Session Initialization**: Coordinates keystore and signer setup
 
-✅ Enhanced Security: Session keys are cryptographically secure and cannot be forged
-✅ Blockchain Integration: Session keys enable direct transaction signing
-✅ Granular Permissions: Unlike JWTs, session keys enforce smart contract-based limits
+### 6. API Controller (`auth.controller.ts`)
+Exposes two endpoints:
+1. `POST /auth/initiate`: Start OTP flow
+2. `POST /auth/verify`: Complete authentication
 
-## User Journey
+## Workflow Diagram
 
-### 1. User Requests OTP
-- The user enters their email and requests an OTP
-- The system generates a 6-digit OTP, stores it securely, and sends it to the user's email
+```mermaid
+sequenceDiagram
+    participant User
+    participant Controller
+    participant AuthService
+    participant KeyStore
+    participant Signer
+    participant Alchemy
 
-### 2. User Verifies OTP
-- The user enters the OTP received via email
-- If valid, the system:
-  - New Users: Creates a new wallet and generates a session key
-  - Existing Users: If a valid session key exists, the user continues using it; otherwise, a new session key is generated
-- The session key address is returned to the frontend
+    User->>Controller: POST /initiate (email)
+    Controller->>AuthService: initiateOTP(email)
+    AuthService->>KeyStore: Create session
+    AuthService->>Mailer: Send OTP
+    Controller->>User: OTP sent
 
-### 3. User Interacts with the Application
-- The frontend uses the session key to sign transactions and interact with the blockchain
-- The session key enforces security constraints (e.g., max spending limit per transaction)
-
-### 4. Session Expiry & Renewal
-- The session key expires after a predefined time (e.g., 1 hour)
-- The user must re-authenticate to generate a new session key
-
-## System Architecture
-
-### Chain Configuration
-- **Production**: Ethereum Mainnet (NODE_ENV=production)
-- **Development**: Sepolia Testnet (NODE_ENV=development)
-
-### Authentication Flow
-
-📌 Endpoints:
-- POST /auth/initiate-otp → Sends an OTP to the user's email
-- POST /auth/verify-otp → Verifies OTP & generates a session key
-
-### Session Key Management
-
-🔑 Endpoints:
-- POST /session-keys/add/:email → Adds a new session key with predefined permissions
-- PUT /session-keys/rotate/:email → Rotates an expired session key
-- PUT /session-keys/permissions/:email → Updates session key permissions
-
-### Transaction Execution
-
-🚀 Endpoint:
-- POST /session-keys/execute/:email → Executes a transaction via session key
-
-## Code Structure
-
-### 1. Types (`types.ts`)
-- Defines interfaces for auth details, parameters, and key store data
-- Implements SmartAccountSigner interface for blockchain integration
-
-### 2. Key Store Service (`keystore.service.ts`)
-- Manages secure storage of session keys and permissions
-- Provides methods for key updates and retrieval
-
-### 3. Auth Service (`auth.service.ts`)
-- Handles OTP generation and verification
-- Manages email sending via MailerService
-- Creates and manages session keys
-
-### 4. Custom Auth Signer (`custom-auth.signer.ts`)
-- Implements blockchain transaction signing
-- Manages session key authentication
-- Handles message and typed data signing
-
-### 5. Account Client Factory (`account-client.factory.ts`)
-- Creates and configures blockchain client instances
-- Manages session key plugin installation
-- Sets up permissions and access controls
-- Handles chain selection based on environment
-
-### 6. Controllers
-- `auth.controller.ts`: Handles authentication endpoints
-- `session-keys.controller.ts`: Manages session key operations
-
-## Example API Usage
-
-### 1. Request OTP
-```http
-POST /auth/initiate-otp
-{
-  "email": "user@example.com"
-}
+    User->>Controller: POST /verify (email, otp)
+    Controller->>Signer: authenticate()
+    Signer->>KeyStore: Validate OTP
+    Signer->>Signer: Init wallet
+    Controller->>AccountFactory: createClient()
+    AccountFactory->>Alchemy: Create account
+    AccountFactory->>Alchemy: Install plugins
+    Controller->>User: Return session keys
 ```
 
-### 2. Verify OTP & Get Session Key
-```http
-POST /auth/verify-otp
-{
-  "email": "user@example.com",
-  "otp": "123456"
-}
+## Security Architecture
 
-Response:
-{
-  "sessionKeyAddress": "0xSessionKeyAddress",
-  "walletAddress": "0xWalletAddress"
-}
-```
+1. **OTP Protection**
+   - 6-digit code valid for 5 minutes
+   - Single-use per generation
+   - Rate-limited by service implementation
 
-### 3. Execute Transaction
-```http
-POST /session-keys/execute/user@example.com
-{
-  "to": "0xRecipientAddress",
-  "value": "0.1",
-  "data": "0x",
-  "sessionKeyAddress": "0xSessionKeyAddress"
-}
+2. **Key Management**
+   - Mnemonics never persisted to disk
+   - Session keys auto-expire after 1 hour
+   - Separate signing keys for different operations
 
-Response:
-{
-  "txHash": "0xTransactionHash"
-}
-```
+3. **Wallet Protection**
+   - Hierarchical deterministic wallet from mnemonic
+   - Zero persistent private key storage
+   - Session keys with limited permissions
 
-## Security Considerations
+## Setup Requirements
 
-### 1. OTP Security
-✅ OTPs are valid for 5 minutes and single-use only
-✅ OTPs are stored securely and deleted after verification
-
-### 2. Session Key Security
-✅ Session keys are stored securely in the backend
-✅ Permissions limit spending, expiration, and allowed actions
-
-### 3. Blockchain Security
-✅ Transactions are signed using session keys, not user private keys
-✅ Session keys enforce smart contract-based security constraints
-
-## Error Handling
-
-Common errors and their solutions:
-
-| Error Code | Description | Solution |
-|------------|-------------|----------|
-| 400 | Invalid OTP | Ensure OTP is correct and not expired |
-| 401 | Unauthorized session key | Re-authenticate and request a new session key |
-| 403 | Session key expired | Request a new session key |
-| 500 | Internal server error | Check server logs |
-
-## Environment Configuration
-
-Required environment variables:
-```env
-NODE_ENV=development|production
-ALCHEMY_API_KEY=your_api_key
+### Environment Variables
+```bash
+# Email Service
 EMAIL_HOST=smtp.example.com
 EMAIL_PORT=587
-EMAIL_USER=your_email
-EMAIL_PASSWORD=your_password
+EMAIL_USER=admin@example.com
+EMAIL_PASSWORD=secure_password
+
+# Blockchain
+ALCHEMY_KEY=your_alchemy_key
+CHAIN_NETWORK=sepolia
 ```
 
-## Best Practices
-
-### 🚀 Frontend Integration
-- Store session key hashes securely
-- Handle session expiration gracefully
-- Implement proper error handling
-
-### 🔐 Security
-- Use environment variables for sensitive data
-- Implement rate limiting for OTP requests
-- Regular session key rotation
-
-### ⚡ Performance
-- Optimize blockchain interactions
-- Implement caching where appropriate
-- Monitor transaction gas costs
+### Dependencies
+```json
+{
+  "@aa-sdk/core": "^1.0.0",
+  "@account-kit/smart-contracts": "^1.2.0",
+  "@alchemy/aa-core": "^2.1.3",
+  "viem": "^1.0.0",
+  "@nestjs-modules/mailer": "^10.0.0"
+}
 ```
 
-This documentation provides a comprehensive overview of the auth module, including the chain configuration for different environments. It's organized in a clear, readable format and includes all necessary information for developers to understand and work with the system.
+## Integration with Alchemy Account Kit
+
+The system leverages three key Account Kit features:
+
+1. **Modular Accounts**
+   ```typescript
+   createModularAccountAlchemyClient({
+     chain: 'sepolia',
+     transport: alchemyTransport,
+     signer: customSigner
+   })
+   ```
+
+2. **Session Key Plugin**
+   ```typescript
+   client.extend(sessionKeyPluginActions)
+   ```
+
+3. **Permission Management**
+   ```typescript
+   new SessionKeyPermissionsBuilder()
+     .setNativeTokenSpendLimit(1000000)
+     .setContractAccessControl(ALLOW_ALL)
+   ```
+
+## Maintenance Considerations
+
+1. **Session Storage**: Current in-memory implementation should be replaced with secure persistent storage for production
+2. **OTP Delivery**: Implement queueing and retry logic for email delivery
+3. **Key Rotation**: Add periodic mnemonic rotation strategy
+4. **Monitoring**: Add logging for authentication attempts and key usage
+5. **Rate Limiting**: Implement request throttling on authentication endpoints
+
+This architecture provides a foundation for building secure, non-custodial applications using email-based authentication while maintaining compatibility with Ethereum smart accounts through Alchemy's infrastructure.
