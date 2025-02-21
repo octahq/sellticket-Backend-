@@ -29,3 +29,23 @@ export const dataSourceConfig = new DataSource({
   migrations: [],
   synchronize: false, // Use migrations instead
 });
+
+
+const AppDataSource = new DataSource({
+  type: 'postgres',
+  host: config.db.host,
+  port: Number(config.db.port),
+  username: config.db.user,
+  password: config.db.password,
+  database: config.db.name,
+  entities: [__dirname + '/../**/*.entity{.ts,.js}'],
+  migrations: [],
+  synchronize: false, // ✅ Use migrations
+});
+
+// ✅ Explicitly initialize connection (for workers)
+AppDataSource.initialize()
+  .then(() => console.log('📦 Database connected (AppDataSource Initialized)'))
+  .catch((err) => console.error('❌ Error initializing database:', err));
+
+export { AppDataSource }; // ✅ Export for BullMQ workers
