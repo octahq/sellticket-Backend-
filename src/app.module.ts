@@ -6,6 +6,7 @@ import { EventModule } from './modules/event/event.module';
 import { CategoryModule } from './modules/category/category.module';
 import { CloudinaryProvider } from './modules/cloudinary/cloudinary.provider';
 import { QueueModule } from './modules/queue/queue.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { QueueModule } from './modules/queue/queue.module';
     }),
     EventModule,
     CategoryModule,
-    QueueModule
+    QueueModule,
+    AuthModule
   ],
   providers: [CloudinaryProvider],
   exports: [CloudinaryProvider]
