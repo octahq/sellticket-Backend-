@@ -9,6 +9,8 @@ import {
 import { Ticket } from '../../tickets/entities/ticket.entity';
 import { ResaleStatus } from '../enums';
 
+
+
 @Entity('ticket_resales')
 export class TicketResale {
   @PrimaryGeneratedColumn('uuid')
