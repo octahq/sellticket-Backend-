@@ -13,7 +13,7 @@ import { CreateTicketPurchaseDto } from '../tickets/dto/create-ticket-purchase.d
 import { CreateTicketResaleDto } from '../tickets/dto/create-ticket-resale.dto';
 import { ServiceResponse } from '../tickets/interface/ticket.response';
 import { TicketStatus } from '../tickets/enums';
-import { PurchaseStatus } from './enums';
+import { PurchaseStatus, ResaleStatus } from './enums';
 import { TicketPurchase } from './entities/ticket.purchase.entity';
 import { TicketResale } from './entities/ticket.resale.entity';
 import { RedisService } from '../../redis/redis.service';
@@ -22,6 +22,7 @@ import { ProcessPaymentDto } from '../payment/dto/process-payment.dto';
 import { PaymentMethod } from '../payment/enums/payment-method.enum';
 import { PaymentStatus } from '../payment/enums/payment-status.enum';
 import { OnEvent } from '@nestjs/event-emitter';
+import { TicketResaleHistory } from './entities/ticket.resale.history.entity';
 
 /**
  * Service responsible for handling ticket purchase, resale, and validation operations.
@@ -38,6 +39,8 @@ export class TicketPurchaseService {
     private readonly purchaseRepository: Repository<TicketPurchase>,
     @InjectRepository(TicketResale)
     private readonly resaleRepository: Repository<TicketResale>,
+    @InjectRepository(TicketResaleHistory)
+    private readonly resaleHistoryRepository: Repository<TicketResaleHistory>,
     private readonly redisService: RedisService,
     private readonly dataSource: DataSource,
     private readonly paymentService: PaymentService,
@@ -245,6 +248,160 @@ export class TicketPurchaseService {
       success: true,
       message: 'Ticket listed for resale successfully',
       data: savedResale,
+    };
+  }
+
+  /**
+   * Purchase a resale ticket
+   * @param resaleId - The ID of the resale listing
+   * @param buyerEmail - Email of the buyer
+   */
+  async purchaseResaleTicket(
+    resaleId: string,
+    buyerEmail: string,
+  ): Promise<ServiceResponse<TicketPurchase>> {
+    const lockKey = `resale:${resaleId}:lock`;
+
+    try {
+      const locked = await this.redisService.acquireLock(lockKey);
+      if (!locked) {
+        throw new ConflictException(
+          'Resale ticket is currently being purchased',
+        );
+      }
+
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+        const resale = await this.resaleRepository.findOne({
+          where: { id: resaleId },
+          relations: ['ticket'],
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        if (!resale) {
+          throw new NotFoundException(`Resale listing ${resaleId} not found`);
+        }
+
+        if (resale.status !== ResaleStatus.LISTED) {
+          throw new ConflictException('Resale ticket is no longer available');
+        }
+
+        // Process payment
+        const paymentDto: ProcessPaymentDto = {
+          amount: resale.resalePrice * 100,
+          currency: 'NGN',
+          email: buyerEmail,
+          paymentMethod: PaymentMethod.CREDIT_CARD,
+        };
+
+        const paymentResult =
+          await this.paymentService.processPayment(paymentDto);
+
+        if (paymentResult.status === PaymentStatus.FAILED) {
+          throw new BadRequestException(
+            `Payment failed: ${paymentResult.message}`,
+          );
+        }
+
+        // Create purchase record
+        const purchase = this.purchaseRepository.create({
+          ticket: resale.ticket,
+          buyerEmail,
+          quantity: 1,
+          status: PurchaseStatus.COMPLETED,
+          purchasePrice: resale.resalePrice,
+        });
+
+        // Create resale history record
+        const resaleHistory = this.resaleHistoryRepository.create({
+          ticket: resale.ticket,
+          previousOwnerId: resale.ticket.currentOwnerId,
+          newOwnerId: buyerEmail,
+          resalePrice: resale.resalePrice,
+        });
+
+        // Update ticket ownership
+        resale.ticket.currentOwnerId = buyerEmail;
+
+        // Update resale status
+        resale.status = ResaleStatus.SOLD;
+
+        // Save all changes
+        await queryRunner.manager.save(resale.ticket);
+        await queryRunner.manager.save(resaleHistory);
+        await queryRunner.manager.save(resale);
+        const savedPurchase = await queryRunner.manager.save(purchase);
+        await queryRunner.commitTransaction();
+
+        return {
+          statusCode: HttpStatus.CREATED,
+          success: true,
+          message: 'Resale ticket purchased successfully',
+          data: savedPurchase,
+        };
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+        throw error;
+      } finally {
+        await queryRunner.release();
+        await this.redisService.releaseLock(lockKey);
+      }
+    } catch (error) {
+      this.logger.error('Error processing resale ticket purchase', error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel a resale listing
+   * @param resaleId - The ID of the resale listing to cancel
+   */
+  async cancelResaleListing(
+    resaleId: string,
+  ): Promise<ServiceResponse<TicketResale>> {
+    const resale = await this.resaleRepository.findOne({
+      where: { id: resaleId },
+      relations: ['ticket'],
+    });
+
+    if (!resale) {
+      throw new NotFoundException(`Resale listing ${resaleId} not found`);
+    }
+
+    if (resale.status !== ResaleStatus.LISTED) {
+      throw new BadRequestException(
+        'Cannot cancel a non-active resale listing',
+      );
+    }
+
+    resale.status = ResaleStatus.CANCELLED;
+    const savedResale = await this.resaleRepository.save(resale);
+
+    return {
+      statusCode: HttpStatus.OK,
+      success: true,
+      message: 'Resale listing cancelled successfully',
+      data: savedResale,
+    };
+  }
+
+  /**
+   * Get all active resale listings
+   */
+  async getActiveResaleListings(): Promise<ServiceResponse<TicketResale[]>> {
+    const listings = await this.resaleRepository.find({
+      where: { status: ResaleStatus.LISTED },
+      relations: ['ticket', 'ticket.event'],
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      success: true,
+      message: 'Active resale listings retrieved successfully',
+      data: listings,
     };
   }
 

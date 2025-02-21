@@ -32,6 +32,9 @@ export class TicketPurchase {
   @Column({ type: 'jsonb', nullable: true })
   additionalInfo?: Record<string, any>;
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  purchasePrice: number;
+
   @Column({
     type: 'enum',
     enum: PurchaseStatus,

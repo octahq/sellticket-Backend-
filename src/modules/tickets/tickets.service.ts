@@ -6,12 +6,13 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Ticket } from './entities/ticket.entity';
 import { Event } from '../event/entities/event.entity';
 import { CreateTicketDto } from './dto';
 import { TicketStatus, TicketType } from './enums';
 import { ServiceResponse } from './interface/ticket.response';
+import { TicketResaleHistory } from '../ticket-purchase/entities/ticket.resale.history.entity';
 
 /**
  * Service handling all ticket-related operations including creation,
@@ -26,6 +27,9 @@ export class TicketsService {
     private readonly ticketRepository: Repository<Ticket>,
     @InjectRepository(Event)
     private readonly eventRepository: Repository<Event>,
+    @InjectRepository(TicketResaleHistory)
+    private readonly resaleHistoryRepository: Repository<TicketResaleHistory>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -127,6 +131,74 @@ export class TicketsService {
       message: 'Event tickets retrieved successfully',
       data: tickets,
     };
+  }
+
+  /**
+   * Lists tickets available for resale
+   * @returns {Promise<ServiceResponse<Ticket[]>>} Response with array of resale tickets
+   */
+  async findResaleTickets(): Promise<ServiceResponse<Ticket[]>> {
+    this.logger.log('Retrieving all resale tickets');
+    const tickets = await this.ticketRepository.find({
+      where: { isResaleEnabled: true },
+      relations: ['event'],
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      success: true,
+      message: 'Resale tickets retrieved successfully',
+      data: tickets,
+    };
+  }
+
+  /**
+   * Updates ticket status after successful resale
+   * @param ticketId - The ticket's UUID
+   * @param newOwnerId - The new owner's ID
+   * @param resalePrice - The resale price
+   */
+  async updateTicketAfterResale(
+    ticketId: string,
+    newOwnerId: string,
+    resalePrice: number,
+  ): Promise<ServiceResponse<Ticket>> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const ticket = await this.getTicketById(ticketId);
+
+      // Create resale history record
+      const resaleHistory = this.resaleHistoryRepository.create({
+        ticket,
+        previousOwnerId: ticket.currentOwnerId,
+        newOwnerId,
+        resalePrice,
+      });
+
+      // Update ticket ownership
+      ticket.currentOwnerId = newOwnerId;
+
+      // Save both changes in a transaction
+      await queryRunner.manager.save(resaleHistory);
+      const updatedTicket = await queryRunner.manager.save(ticket);
+      await queryRunner.commitTransaction();
+
+      return {
+        statusCode: HttpStatus.OK,
+        success: true,
+        message: 'Ticket ownership and resale history updated successfully',
+        data: updatedTicket,
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('Error updating ticket ownership', error.stack);
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   // Private method for internal use

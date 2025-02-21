@@ -12,6 +12,7 @@ import { Event } from '../../event/entities/event.entity';
 import { TicketStatus, TicketType, TokenGatingType } from '../enums';
 import { TicketPurchase } from '../../ticket-purchase/entities/ticket.purchase.entity';
 import { TicketResale } from '../../ticket-purchase/entities/ticket.resale.entity';
+import { TicketResaleHistory } from '../../ticket-purchase/entities/ticket.resale.history.entity';
 
 @Entity('tickets')
 export class Ticket {
@@ -73,11 +74,17 @@ export class Ticket {
   @Column({ type: 'number' })
   eventId: number;
 
+  @Column()
+  currentOwnerId: string;
+
   @OneToMany(() => TicketPurchase, (purchase) => purchase.ticket)
   purchases: TicketPurchase[];
 
   @OneToMany(() => TicketResale, (resale) => resale.ticket)
   resales: TicketResale[];
+
+  @OneToMany(() => TicketResaleHistory, (history) => history.ticket)
+  resaleHistory: TicketResaleHistory[];
 
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
