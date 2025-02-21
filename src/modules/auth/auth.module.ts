@@ -1,13 +1,15 @@
+// src/auth/auth.module.ts
 import { Module } from '@nestjs/common';
-import { AuthService } from './auth.service'
-import { AuthController } from './auth.controller'
-import { MailService } from '../../common/utils/email'
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from './entities/auth.entity'
 import { JwtModule } from '@nestjs/jwt';
-import { AlchemyAAService } from '../../common/utils/alchemy'
-import { EncryptionService } from 'src/common/utils/encryption.service';
+import { User } from './entities/auth.entity';
+import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller';
+import { MailService } from '../../common/utils/email';
+import { AlchemyAAService } from '../../common/utils/alchemy';
+import { EncryptionService } from '../../common/utils/encryption.service';
+import { CustomAuthSigner } from '../../common/utils/custom-auth.signer';
 
 @Module({
   imports: [
@@ -16,14 +18,20 @@ import { EncryptionService } from 'src/common/utils/encryption.service';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '1h' },
+      useFactory: (config: ConfigService) => ({
+        secret: config.get('JWT_SECRET'),
+        signOptions: { expiresIn: '1h' }
       }),
     }),
   ],
-  providers: [AuthService, MailService, AlchemyAAService, EncryptionService],
+  providers: [
+    AuthService,
+    MailService,
+    AlchemyAAService,
+    EncryptionService,
+    CustomAuthSigner
+  ],
   controllers: [AuthController],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, JwtModule]
 })
 export class AuthModule {}

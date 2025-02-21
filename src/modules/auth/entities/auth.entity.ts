@@ -1,17 +1,6 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  BeforeInsert,
-} from 'typeorm';
+// src/auth/entities/auth.entity.ts
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, BeforeInsert } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
-
-export enum UserRole {
-  USER = 'user',
-  ADMIN = 'admin',
-}
 
 @Entity('users')
 export class User {
@@ -24,14 +13,8 @@ export class User {
   @Column({ nullable: true })
   walletAddress?: string;
 
-  @Column({ type: 'text', nullable: true }) // Encrypted private key
-  encryptedPrivateKey?: string;
-
-  @Column({ type: 'text', nullable: true }) // Encrypted private key
+  @Column({ type: 'text', nullable: true })
   encryptedMmemonic?: string;
-
-  @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
-  role: UserRole;
 
   @Column({ nullable: true })
   otp?: string;
@@ -53,7 +36,6 @@ export class User {
   }
 
   async validateOtp(plainOtp: string): Promise<boolean> {
-    if (!this.otp) return false;
-    return bcrypt.compare(plainOtp, this.otp);
+    return this.otp ? bcrypt.compare(plainOtp, this.otp) : false;
   }
 }

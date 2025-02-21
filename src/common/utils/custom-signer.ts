@@ -1,50 +1,61 @@
-// import type { Address } from "abitype";
-// import type { SignableMessage, TypedData, TypedDataDefinition, Hex } from "viem";
-// import { mnemonicToAccount } from "viem/accounts";
-// import type { SmartAccountSigner } from "@aa-sdk/core/signer/types.js"; 
- 
+// src/common/utils/custom-auth.signer.ts
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Address, Hex, SignableMessage, TypedData, TypedDataDefinition } from 'viem';
+import { LocalAccountSigner, SmartAccountSigner } from '@aa-sdk/core';
+import { EncryptionService } from './encryption.service';
+import { User } from '../../auth/entities/auth.entity';
+import { generateMnemonic } from 'viem/accounts';
 
-// export class CustomSigner implements SmartAccountSigner {
-//   signerType = "CustomSigner"; // ✅ Required for Alchemy SDK
-//   inner: any; // ✅ Holds the actual signer instance
+@Injectable()
+export class CustomAuthSigner implements SmartAccountSigner {
+  readonly signerType = "SecureSigner";
+  private inner: ReturnType<typeof LocalAccountSigner.mnemonicToAccountSigner> | null = null;
+  private currentUser: User | null = null;
 
-//   constructor(mnemonic: string) {
-//     // 🔥 Convert mnemonic to account using Viem
-//     this.inner = mnemonicToAccount(mnemonic);
-//   }
+  constructor(private encryptionService: EncryptionService) {}
 
-//   /**
-//    * ✅ Returns the wallet address (required by Alchemy SDK)
-//    */
-//   async getAddress(): Promise<Address> {
-//     return this.inner.address as Address;
-//   }
+  async generateNewWallet(): Promise<{ mnemonic: string; address: Address }> {
+    const mnemonic = generateMnemonic();
+    const signer = LocalAccountSigner.mnemonicToAccountSigner(mnemonic);
+    const address = await signer.getAddress();
+    return { mnemonic, address };
+  }
 
-//   /**
-//    * ✅ Signs a message (required by Alchemy SDK)
-//    */
-//   async signMessage(message: SignableMessage): Promise<Hex> {
-//     return this.inner.signMessage(message) as Promise<Hex>;
-//   }
+  async initialize(user: User): Promise<Address> {
+    if (!user.encryptedMmemonic) {
+      throw new UnauthorizedException('No cryptographic material found');
+    }
+    
+    try {
+      const mnemonic = this.encryptionService.decrypt(user.encryptedMmemonic);
+      this.inner = LocalAccountSigner.mnemonicToAccountSigner(mnemonic);
+      this.currentUser = user;
+      return this.getAddress();
+    } catch (error) {
+      throw new UnauthorizedException('Failed to initialize signer');
+    }
+  }
 
-//   /**
-//    * ✅ Signs EIP-712 typed data (required by Alchemy SDK)
-//    */
-//   async signTypedData<
-//     TTypedData extends TypedData | Record<string, unknown>,
-//     TPrimaryType extends keyof TTypedData | "EIP712Domain" = keyof TTypedData
-//   >(params: TypedDataDefinition<TTypedData, TPrimaryType>): Promise<Hex> {
-//     return this.inner.signTypedData(params) as Promise<Hex>;
-//   }
+  async getAddress(): Promise<Address> {
+    this.validateReady();
+    return this.inner!.getAddress();
+  }
 
-//   /**
-//    * ✅ Sign Authorization (Optional, but may be required for some Alchemy SDK operations)
-//    */
-//   // async signAuthorization(
-//   //   unsignedAuthorization: { hash: `0x${string}` }
-//   // ): Promise<{ hash: `0x${string}` }> {
-//   //   return {
-//   //     hash: await this.inner.signMessage(unsignedAuthorization.hash),
-//   //   };
-//   // }
-// }
+  async signMessage(message: SignableMessage): Promise<Hex> {
+    this.validateReady();
+    return this.inner!.signMessage(message);
+  }
+
+  async signTypedData<TTypedData extends TypedData, TPrimaryType extends keyof TTypedData>(
+    params: TypedDataDefinition<TTypedData, TPrimaryType>
+  ): Promise<Hex> {
+    this.validateReady();
+    return this.inner!.signTypedData(params);
+  }
+
+  private validateReady(): void {
+    if (!this.inner || !this.currentUser) {
+      throw new UnauthorizedException('Complete OTP authentication first');
+    }
+  }
+}
