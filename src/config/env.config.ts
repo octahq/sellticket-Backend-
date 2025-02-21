@@ -12,6 +12,20 @@ const config = {
     user: process.env.DB_USER,
     url: process.env.DATABASE_URL,
   },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD || '',
+    url: process.env.REDIS_URL,
+  },
+  paymentConfig: {
+    paystackSecretKey: process.env.PAYSTACK_SECRET_KEY,
+    paystackInitializeTransactionUrl:
+      process.env.PAYSTACK_INITIALIZE_TRANSACTION_URL ||
+      'https://api.paystack.co/transaction/initialize',
+    paystackWebhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET,
+    paystackVerifyTransactionUrl: process.env.PAYSTACK_VERIFY_TRANSACTION_URL,
+  },
 };
 
 export default config;

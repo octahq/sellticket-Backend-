@@ -17,6 +17,9 @@ async function bootstrap() {
     app.useGlobalInterceptors(new TransformInterceptor());
     app.useGlobalFilters(new HttpExceptionFilter());
 
+    app.setGlobalPrefix('/api/v1');
+
+
     // Swagger configuration
     const config = new DocumentBuilder()
       .setTitle('Event Management API')
@@ -27,7 +30,6 @@ async function bootstrap() {
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api', app, document);
 
-    app.setGlobalPrefix('/api/v1');
 
     const configService = app.get(ConfigService);
 
