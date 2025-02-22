@@ -12,37 +12,59 @@ export class CustomAuthSigner {
   private _inner: SmartAccountSigner | null = null;
   public currentUser: User | null = null;
 
-  get inner() {
-    return this._inner;
-  }
-
   constructor(private encryptionService: EncryptionService) {}
 
   private async loadSigner() {
-    const { LocalAccountSigner } = await import('@aa-sdk/core'); // Only dynamically import concrete classes
-    return { LocalAccountSigner };
+    try {
+      const { LocalAccountSigner } = await import('@aa-sdk/core');
+      return { LocalAccountSigner };
+    } catch (error) {
+      console.error('Failed to load signer:', error);
+      throw new UnauthorizedException('Failed to initialize signer');
+    }
   }
 
   async generateNewWallet(): Promise<{ mnemonic: string; address: Address }> {
-    const { LocalAccountSigner } = await this.loadSigner();
-    const mnemonic = generateMnemonic(wordlists.english, 128);
-    const signer = LocalAccountSigner.mnemonicToAccountSigner(mnemonic);
-    const address = await signer.getAddress();
-    return { mnemonic, address };
+    try {
+      const { LocalAccountSigner } = await this.loadSigner();
+      const mnemonic = generateMnemonic(wordlists.english, 128);
+      console.log('Generated mnemonic:', mnemonic); // Debug log
+      
+      const signer = LocalAccountSigner.mnemonicToAccountSigner(mnemonic);
+      const address = await signer.getAddress();
+      
+      console.log('Generated wallet address:', address); // Debug log
+      return { mnemonic, address };
+    } catch (error) {
+      console.error('Failed to generate wallet:', error);
+      throw new Error('Failed to generate wallet');
+    }
   }
 
   async initialize(user: User): Promise<Address> {
+    console.log('Initializing signer for user:', user.email); // Debug log
+    
     if (!user.encryptedMnemonic) {
+      console.error('No encrypted mnemonic found for user:', user.email);
       throw new UnauthorizedException('No cryptographic material found');
     }
 
     try {
       const { LocalAccountSigner } = await this.loadSigner();
+      
+      console.log('Decrypting mnemonic...'); // Debug log
       const mnemonic = this.encryptionService.decrypt(user.encryptedMnemonic);
+      console.log('Mnemonic decrypted successfully'); // Debug log
+      
       this._inner = LocalAccountSigner.mnemonicToAccountSigner(mnemonic);
       this.currentUser = user;
-      return await this.getAddress();
+      
+      const address = await this.getAddress();
+      console.log('Initialized wallet address:', address); // Debug log
+      
+      return address;
     } catch (error) {
+      console.error('Failed to initialize signer:', error);
       throw new UnauthorizedException('Failed to initialize signer');
     }
   }
@@ -68,5 +90,9 @@ export class CustomAuthSigner {
     if (!this.inner || !this.currentUser) {
       throw new UnauthorizedException('Complete OTP authentication first');
     }
+  }
+
+  get inner() {
+    return this._inner;
   }
 }

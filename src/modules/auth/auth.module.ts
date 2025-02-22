@@ -21,9 +21,11 @@ import { SessionController } from './session.controller';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get('JWT_SECRET'),
-        signOptions: { expiresIn: '1h' }
+      useFactory: async (configService: ConfigService) => ({
+        secret: configService.get('JWT_SECRET'),
+        signOptions: { 
+          expiresIn: '24h' // Increased from 1h for better user experience
+        },
       }),
     }),
   ],
@@ -35,6 +37,13 @@ import { SessionController } from './session.controller';
     AlchemyAAService,
     EncryptionService,
     CustomAuthSigner,
+    {
+      provide: 'ENCRYPTION_KEY',
+      useFactory: (configService: ConfigService) => {
+        return configService.get('ENCRYPTION_KEY') || 'default-encryption-key-32-chars-here!!';
+      },
+      inject: [ConfigService],
+    },
   ],
   exports: [AuthService, JwtModule]
 })

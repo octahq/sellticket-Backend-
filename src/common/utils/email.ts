@@ -11,12 +11,12 @@ export class MailService {
   constructor(private readonly configService: ConfigService) {
     this.transporter = createTransport({
       host: this.configService.get<string>('NOREPLY_HOST'),
-      port: 465,
+      port: 587,
       auth: {
         user: this.configService.get<string>('NOREPLY_USERNAME'),
         pass: this.configService.get<string>('NOREPLY_PASSWORD'),
       },
-      secure: true,
+      secure: false,
     });
   }
 

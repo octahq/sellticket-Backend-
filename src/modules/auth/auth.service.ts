@@ -23,41 +23,78 @@ export class AuthService {
   ) {}
 
   async generateOtp(email: string) {
-    let user = await this.userRepository.findOne({ where: { email } });
+    try {
+      let user = await this.userRepository.findOne({ where: { email } });
 
-    if (!user) {
-      // Generate new wallet through the custom signer
-      const { mnemonic, address } = await this.authSigner.generateNewWallet();
-      
-      user = this.userRepository.create({
-        email,
-        walletAddress: address,
-        encryptedMnemonic: this.encryptionService.encrypt(mnemonic),
+      if (!user) {
+        console.log('Creating new user with wallet...');
+        try {
+          // Generate new wallet
+          const { mnemonic, address } = await this.authSigner.generateNewWallet();
+          
+          // Encrypt mnemonic
+          const encryptedMnemonic = this.encryptionService.encrypt(mnemonic);
+          
+          console.log('Wallet generated:', { 
+            address,
+            hasMnemonic: !!encryptedMnemonic 
+          });
+
+          // Create and save user
+          user = this.userRepository.create({
+            email,
+            walletAddress: address,
+            encryptedMnemonic: encryptedMnemonic // Make sure this matches the entity property
+          });
+
+          await this.userRepository.save(user);
+          
+          console.log('User saved with wallet:', {
+            id: user.id,
+            email: user.email,
+            hasWallet: !!user.walletAddress,
+            hasMnemonic: !!user.encryptedMnemonic
+          });
+        } catch (walletError) {
+          console.error('Failed to create wallet:', walletError);
+          throw new Error('Failed to create wallet');
+        }
+      } else {
+        console.log('Existing user found:', {
+          id: user.id,
+          email: user.email,
+          hasWallet: !!user.walletAddress,
+          hasMnemonic: !!user.encryptedMnemonic
+        });
+      }
+
+      // Generate and save OTP
+      const otpLength = parseInt(process.env.OTP_LENGTH || '4');
+      const { randomDigits: code } = this.generateOtpCode({
+        numberOfDigits: otpLength,
       });
-      await this.userRepository.save(user);
+
+      const otpExpiresAt = new Date(
+        Date.now() + parseInt(process.env.OTP_EXPIRATION_MS || '300000'),
+      );
+
+      await this.userRepository.update(user.id, {
+        otp: await bcrypt.hash(code, 10),
+        otpExpiresAt,
+      });
+
+      // Send OTP email
+      await this.mailService
+        .sendMail(email, 'Your OTP Code', {
+          text: `Your OTP code is: ${code}. It will expire in ${process.env.OTP_EXPIRATION_MINUTES || 5} minutes.`,
+        })
+        .catch(error => console.error('Failed to send email:', error));
+
+      return { message: 'OTP sent successfully.' };
+    } catch (error) {
+      console.error('Error in generateOtp:', error);
+      throw new Error('Failed to generate OTP: ' + error.message);
     }
-
-    const otpLength = parseInt(process.env.OTP_LENGTH || '4');
-    const { randomDigits: code } = this.generateOtpCode({
-      numberOfDigits: otpLength,
-    });
-
-    const otpExpiresAt = new Date(
-      Date.now() + parseInt(process.env.OTP_EXPIRATION_MS || '300000'),
-    );
-
-    await this.userRepository.update(user.id, {
-      otp: await bcrypt.hash(code, 10),
-      otpExpiresAt,
-    });
-
-    this.mailService
-      .sendMail(email, 'Your OTP Code', {
-        text: `Your OTP code is: ${code}. It will expire in ${process.env.OTP_EXPIRATION_MINUTES || 5} minutes.`,
-      })
-      .catch(console.error);
-
-    return { message: 'OTP sent successfully.' };
   }
 
   async verifyOtp(email: string, otp: string) {
