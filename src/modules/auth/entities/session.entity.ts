@@ -1,6 +1,6 @@
 // src/auth/entities/session.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
-import { User } from './user.entity';
+import { User } from './auth.entity';
 
 /**
  * Entity representing a user session with permissions

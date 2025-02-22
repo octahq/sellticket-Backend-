@@ -9,12 +9,15 @@ import { AuthController } from './auth.controller';
 import { MailService } from '../../common/utils/email';
 import { AlchemyAAService } from '../../common/utils/alchemy';
 import { EncryptionService } from '../../common/utils/encryption.service';
-import { CustomAuthSigner } from '../../common/utils/custom-auth.signer';
+import { CustomAuthSigner } from '../../common/utils/custom-signer';
+import { Session } from './entities/session.entity';
+import { SessionService } from './session.service';
+import { SessionController } from './session.controller';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, Session]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -24,14 +27,15 @@ import { CustomAuthSigner } from '../../common/utils/custom-auth.signer';
       }),
     }),
   ],
+  controllers: [AuthController, SessionController],
   providers: [
     AuthService,
+    SessionService,
     MailService,
     AlchemyAAService,
     EncryptionService,
-    CustomAuthSigner
+    CustomAuthSigner,
   ],
-  controllers: [AuthController],
   exports: [AuthService, JwtModule]
 })
 export class AuthModule {}

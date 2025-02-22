@@ -1,36 +1,47 @@
-// src/common/utils/custom-auth.signer.ts
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { Address, Hex, SignableMessage, TypedData, TypedDataDefinition } from 'viem';
-import { LocalAccountSigner, SmartAccountSigner } from '@aa-sdk/core';
 import { EncryptionService } from './encryption.service';
-import { User } from '../../auth/entities/auth.entity';
+import { User } from '../../modules/auth/entities/auth.entity';
 import { generateMnemonic } from 'viem/accounts';
+import { wordlists } from 'bip39';
+import type { SmartAccountSigner } from "@aa-sdk/core" with { "resolution-mode": "import" };
 
 @Injectable()
-export class CustomAuthSigner implements SmartAccountSigner {
+export class CustomAuthSigner {
   readonly signerType = "SecureSigner";
-  private inner: ReturnType<typeof LocalAccountSigner.mnemonicToAccountSigner> | null = null;
-  private currentUser: User | null = null;
+  private _inner: SmartAccountSigner | null = null;
+  public currentUser: User | null = null;
+
+  get inner() {
+    return this._inner;
+  }
 
   constructor(private encryptionService: EncryptionService) {}
 
+  private async loadSigner() {
+    const { LocalAccountSigner } = await import('@aa-sdk/core'); // Only dynamically import concrete classes
+    return { LocalAccountSigner };
+  }
+
   async generateNewWallet(): Promise<{ mnemonic: string; address: Address }> {
-    const mnemonic = generateMnemonic();
+    const { LocalAccountSigner } = await this.loadSigner();
+    const mnemonic = generateMnemonic(wordlists.english, 128);
     const signer = LocalAccountSigner.mnemonicToAccountSigner(mnemonic);
     const address = await signer.getAddress();
     return { mnemonic, address };
   }
 
   async initialize(user: User): Promise<Address> {
-    if (!user.encryptedMmemonic) {
+    if (!user.encryptedMnemonic) {
       throw new UnauthorizedException('No cryptographic material found');
     }
-    
+
     try {
-      const mnemonic = this.encryptionService.decrypt(user.encryptedMmemonic);
-      this.inner = LocalAccountSigner.mnemonicToAccountSigner(mnemonic);
+      const { LocalAccountSigner } = await this.loadSigner();
+      const mnemonic = this.encryptionService.decrypt(user.encryptedMnemonic);
+      this._inner = LocalAccountSigner.mnemonicToAccountSigner(mnemonic);
       this.currentUser = user;
-      return this.getAddress();
+      return await this.getAddress();
     } catch (error) {
       throw new UnauthorizedException('Failed to initialize signer');
     }

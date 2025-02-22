@@ -7,7 +7,8 @@ import { User } from './entities/auth.entity';
 import * as bcrypt from 'bcryptjs';
 import { MailService } from '../../common/utils/email';
 import { AlchemyAAService } from '../../common/utils/alchemy';
-import { CustomAuthSigner } from '../../common/utils/custom-auth.signer';
+import { CustomAuthSigner } from '../../common/utils/custom-signer';
+import { EncryptionService } from 'src/common/utils/encryption.service';
 
 @Injectable()
 export class AuthService {
@@ -16,6 +17,7 @@ export class AuthService {
     private mailService: MailService,
     private alchemyAAService: AlchemyAAService,
     private authSigner: CustomAuthSigner,
+    private encryptionService: EncryptionService,
     @InjectRepository(User)
     private userRepository: Repository<User>,
   ) {}
@@ -30,7 +32,7 @@ export class AuthService {
       user = this.userRepository.create({
         email,
         walletAddress: address,
-        encryptedMmemonic: this.authSigner.encryptionService.encrypt(mnemonic),
+        encryptedMnemonic: this.encryptionService.encrypt(mnemonic),
       });
       await this.userRepository.save(user);
     }
@@ -61,7 +63,7 @@ export class AuthService {
   async verifyOtp(email: string, otp: string) {
     const user = await this.userRepository.findOne({ 
       where: { email },
-      select: ['id', 'email', 'otp', 'otpExpiresAt', 'encryptedMmemonic', 'walletAddress']
+      select: ['id', 'email', 'otp', 'otpExpiresAt', 'encryptedMnemonic', 'walletAddress']
     });
 
     if (!user || !user.otp || !user.otpExpiresAt || user.otpExpiresAt < new Date()) {

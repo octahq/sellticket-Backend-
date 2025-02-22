@@ -6,5 +6,5 @@ export class AuthResponseDto {
   message: string;
 
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...', description: 'JWT token' })
-  token: string;
+  token?: string;
 }

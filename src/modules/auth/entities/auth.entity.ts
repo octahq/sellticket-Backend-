@@ -1,6 +1,7 @@
 // src/auth/entities/auth.entity.ts
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, BeforeInsert } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, BeforeInsert, OneToMany } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
+import { Session } from './session.entity';
 
 @Entity('users')
 export class User {
@@ -14,7 +15,7 @@ export class User {
   walletAddress?: string;
 
   @Column({ type: 'text', nullable: true })
-  encryptedMmemonic?: string;
+  encryptedMnemonic?: string;
 
   @Column({ nullable: true })
   otp?: string;
@@ -27,6 +28,9 @@ export class User {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @OneToMany(() => Session, session => session.user)
+  sessions: Session[];
 
   @BeforeInsert()
   async hashOtp() {

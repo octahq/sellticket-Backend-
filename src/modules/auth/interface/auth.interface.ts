@@ -6,3 +6,8 @@ export interface RandomAlphanumeric {
   randomDigits: string;
   randomAlphabets?: string;
 }
+
+export interface AuthResponse {
+  message: string;
+  token?: string;
+}
