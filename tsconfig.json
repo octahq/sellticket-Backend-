@@ -1,7 +1,6 @@
 {
   "compilerOptions": {
-    "module": "NodeNext",       // ✅ Supports both ESM and CommonJS
-    "moduleResolution": "NodeNext",
+    "module": "commonjs",
     "declaration": true,
     "removeComments": true,
     "emitDecoratorMetadata": true,
@@ -18,6 +17,5 @@
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false
-  },
-  "exclude": ["esm-wrapper.mjs"]
+  }
 }
