@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 import { Category } from '../../category/entities/category.entity';
+import { Ticket } from '../../tickets/entities/ticket.entity';
 
 export enum LocationType {
     Undisclosed = 'undisclosed',
@@ -30,13 +31,17 @@ export class Event {
   @Column({ nullable: true }) // Event image URL
   imageUrl?: string;
 
-  @ManyToOne(() => Category, (category) => category.id, { eager: true }) 
-  category: Category; 
+  @ManyToOne(() => Category, (category) => category.id, { eager: true })
+  category: Category;
 
   @Column({ nullable: true }) // Custom checkout field (if needed)
   additionalInfo?: string;
 
-  @Column({ type: 'enum', enum: LocationType, default: LocationType.Undisclosed })
+  @Column({
+    type: 'enum',
+    enum: LocationType,
+    default: LocationType.Undisclosed,
+  })
   locationType: LocationType;
 
   @Column({ nullable: true }) // Store physical address or meeting link
@@ -53,4 +58,7 @@ export class Event {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @OneToMany(() => Ticket, (ticket) => ticket.event)
+  tickets: Ticket[];
 }

@@ -26,7 +26,7 @@ export const dataSourceConfig = new DataSource({
   password: config.db.password,
   database: config.db.name,
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-  migrations: [],
+  migrations: [__dirname + '/../migrations/*{.ts,.js}'],
   synchronize: false, // Use migrations instead
 });
 
