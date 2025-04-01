@@ -79,6 +79,18 @@ export class TicketResponseDto {
   @Expose()
   groupSize?: number;
 
+  @ApiProperty({ example: '0x123...', required: false })
+  @Expose()
+  sellerWalletAddress?: string;
+
+  @ApiProperty({ example: false })
+  @Expose()
+  isResale: boolean;
+
+  @ApiProperty({ example: 'abc-123', required: false })
+  @Expose()
+  originalPurchaseId?: string;
+
   @ApiProperty({ example: '2025-02-01T16:11:45.292Z' })
   @Expose()
   createdAt: Date;

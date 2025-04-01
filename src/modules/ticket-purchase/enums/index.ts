@@ -2,6 +2,7 @@ export enum PurchaseStatus {
   PENDING = 'pending',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
+  RESOLD = 'resold',
 }
 
 export enum ResaleStatus {

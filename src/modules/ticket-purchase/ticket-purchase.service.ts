@@ -5,6 +5,7 @@ import {
   ConflictException,
   BadRequestException,
   HttpStatus,
+  HttpException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -16,12 +17,10 @@ import { TicketStatus } from '../tickets/enums';
 import { PurchaseStatus } from './enums';
 import { TicketPurchase } from './entities/ticket.purchase.entity';
 import { TicketResale } from './entities/ticket.resale.entity';
-import { RedisService } from '../../redis/redis.service';
+import { RedisService } from '../redis/redis.service';
 import { PaymentService } from '../payment/payment.service';
-import { ProcessPaymentDto } from '../payment/dto/process-payment.dto';
-import { PaymentMethod } from '../payment/enums/payment-method.enum';
-import { PaymentStatus } from '../payment/enums/payment-status.enum';
 import { OnEvent } from '@nestjs/event-emitter';
+import { WalletService } from '../wallet/wallet.service';
 
 /**
  * Service responsible for handling ticket purchase, resale, and validation operations.
@@ -30,6 +29,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 @Injectable()
 export class TicketPurchaseService {
   private readonly logger = new Logger(TicketPurchaseService.name);
+  private readonly LOCK_TTL = 30; // 30 seconds lock timeout
 
   constructor(
     @InjectRepository(Ticket)
@@ -41,6 +41,7 @@ export class TicketPurchaseService {
     private readonly redisService: RedisService,
     private readonly dataSource: DataSource,
     private readonly paymentService: PaymentService,
+    private readonly walletService: WalletService,
   ) {}
 
   /**
@@ -54,79 +55,108 @@ export class TicketPurchaseService {
   async purchaseTicket(
     createTicketPurchaseDto: CreateTicketPurchaseDto,
   ): Promise<ServiceResponse<TicketPurchase>> {
-    const { ticketId, buyerEmail, quantity } = createTicketPurchaseDto;
-    const lockKey = `ticket:${ticketId}:lock`;
+    const {
+      ticketId,
+      quantity,
+      buyerEmail,
+      buyerFirstName,
+      buyerLastName,
+      buyerWalletAddress,
+      userId,
+    } = createTicketPurchaseDto;
+
+    // Try to acquire lock
+    const lockKey = `ticket:purchase:${ticketId}`;
+    const lockAcquired = await this.redisService.acquireLock(
+      lockKey,
+      this.LOCK_TTL,
+    );
+
+    if (!lockAcquired) {
+      throw new ConflictException('Ticket is being purchased by another user');
+    }
 
     try {
-      const locked = await this.redisService.acquireLock(lockKey);
-      if (!locked) {
-        throw new ConflictException('Ticket is currently being purchased');
-      }
-
-      const queryRunner = this.dataSource.createQueryRunner();
-      await queryRunner.connect();
-      await queryRunner.startTransaction();
-
-      try {
-        const ticket = await queryRunner.manager.findOne(Ticket, {
+      // Start transaction
+      await this.dataSource.transaction(async (transactionalEntityManager) => {
+        // Get ticket details with lock
+        const ticket = await transactionalEntityManager.findOne(Ticket, {
           where: { id: ticketId },
           lock: { mode: 'pessimistic_write' },
         });
 
         if (!ticket) {
-          throw new NotFoundException(`Ticket with ID ${ticketId} not found`);
+          throw new HttpException('Ticket not found', HttpStatus.NOT_FOUND);
         }
 
+        // Validate purchase
         await this.validateTicketPurchase(ticket, createTicketPurchaseDto);
 
-        const paymentDto: ProcessPaymentDto = {
-          amount: ticket.basePrice * quantity * 100,
-          currency: 'NGN',
-          email: buyerEmail,
-          paymentMethod: PaymentMethod.CREDIT_CARD,
-        };
+        // Calculate total price
+        const totalPrice = ticket.basePrice * quantity;
 
-        const paymentResult =
-          await this.paymentService.processPayment(paymentDto);
+        // Check buyer's wallet balance
+        const buyerBalance =
+          await this.walletService.getWalletBalance(buyerWalletAddress);
+        if (buyerBalance < totalPrice) {
+          throw new BadRequestException('Insufficient wallet balance');
+        }
 
-        if (paymentResult.status === PaymentStatus.FAILED) {
-          await queryRunner.rollbackTransaction();
-          throw new BadRequestException(
-            `Payment initialization failed: ${paymentResult.message}`,
+        // Transfer funds from buyer to seller
+        const transferSuccess = await this.walletService.transferFunds(
+          buyerWalletAddress,
+          ticket.sellerWalletAddress,
+          totalPrice,
+        );
+
+        if (!transferSuccess) {
+          throw new HttpException(
+            'Failed to transfer funds',
+            HttpStatus.INTERNAL_SERVER_ERROR,
           );
         }
 
-        const purchase = this.purchaseRepository.create({
-          ...createTicketPurchaseDto,
+        // Create purchase record
+        const purchase = transactionalEntityManager.create(TicketPurchase, {
+          buyerEmail,
+          buyerFirstName,
+          buyerLastName,
+          buyerWalletAddress,
           ticket,
-          status: PurchaseStatus.PENDING,
+          quantity,
+          totalPrice,
+          status: PurchaseStatus.COMPLETED,
+          userId,
         });
 
-        ticket.quantity -= createTicketPurchaseDto.quantity;
-        if (ticket.quantity === 0) {
-          ticket.status = TicketStatus.SOLD_OUT;
-        }
+        // Update ticket availability
+        await transactionalEntityManager.update(Ticket, ticketId, {
+          quantity: ticket.quantity - quantity,
+          status:
+            ticket.quantity - quantity === 0
+              ? TicketStatus.SOLD
+              : TicketStatus.AVAILABLE,
+        });
 
-        await queryRunner.manager.save(ticket);
-        const savedPurchase = await queryRunner.manager.save(purchase);
-        await queryRunner.commitTransaction();
+        // Save purchase
+        await transactionalEntityManager.save(purchase);
+      });
 
-        return {
-          statusCode: HttpStatus.CREATED,
-          success: true,
-          message:
-            'Ticket purchase initiated, waiting for payment confirmation.',
-          data: savedPurchase,
-        };
-      } catch (error) {
-        await queryRunner.rollbackTransaction();
-        throw error;
-      } finally {
-        await queryRunner.release();
-        await this.redisService.releaseLock(lockKey);
-      }
+      // Release lock
+      await this.redisService.releaseLock(lockKey);
+
+      return {
+        statusCode: HttpStatus.CREATED,
+        success: true,
+        message: 'Ticket purchased successfully',
+        data: await this.purchaseRepository.findOne({
+          where: { ticket: { id: ticketId }, buyerEmail },
+          relations: ['ticket'],
+        }),
+      };
     } catch (error) {
-      this.logger.error('Error processing ticket purchase', error.stack);
+      // Release lock on error
+      await this.redisService.releaseLock(lockKey);
       throw error;
     }
   }
@@ -220,32 +250,87 @@ export class TicketPurchaseService {
    * @throws NotFoundException when ticket doesn't exist
    */
   async resellTicket(
-    createTicketResaleDto: CreateTicketResaleDto,
-  ): Promise<ServiceResponse<TicketResale>> {
-    this.logger.log(
-      `Creating resale listing for ticket ${createTicketResaleDto.ticketId}`,
-      { resaleData: createTicketResaleDto },
+    purchaseId: string,
+    newPrice: number,
+    sellerWalletAddress: string,
+    userId: string,
+  ): Promise<ServiceResponse<Ticket>> {
+    const lockKey = `ticket:resale:${purchaseId}`;
+    const lockAcquired = await this.redisService.acquireLock(
+      lockKey,
+      this.LOCK_TTL,
     );
 
-    const ticket = await this.getTicketById(createTicketResaleDto.ticketId);
-    await this.validateTicketResale(ticket, createTicketResaleDto);
+    if (!lockAcquired) {
+      throw new ConflictException('Ticket is being resold by another user');
+    }
 
-    const resale = this.resaleRepository.create({
-      ...createTicketResaleDto,
-      ticket,
-    });
+    try {
+      const result = await this.dataSource.transaction(
+        async (transactionalEntityManager) => {
+          const purchase = await transactionalEntityManager.findOne(
+            TicketPurchase,
+            {
+              where: { id: purchaseId },
+              relations: ['ticket'],
+              lock: { mode: 'pessimistic_write' },
+            },
+          );
 
-    const savedResale = await this.resaleRepository.save(resale);
-    this.logger.log(
-      `Successfully created resale listing with ID ${savedResale.id}`,
-    );
+          if (!purchase) {
+            throw new NotFoundException('Purchase not found');
+          }
 
-    return {
-      statusCode: HttpStatus.CREATED,
-      success: true,
-      message: 'Ticket listed for resale successfully',
-      data: savedResale,
-    };
+          if (purchase.userId !== userId) {
+            throw new ConflictException('Not authorized to resell this ticket');
+          }
+
+          if (purchase.status !== PurchaseStatus.COMPLETED) {
+            throw new BadRequestException(
+              'Only completed purchases can be resold',
+            );
+          }
+
+          // Validate resale price
+          if (newPrice > purchase.ticket.maxResellPrice) {
+            throw new BadRequestException(
+              `Resale price exceeds maximum allowed price of ${purchase.ticket.maxResellPrice}`,
+            );
+          }
+
+          // Create new ticket for resale
+          const resaleTicket = transactionalEntityManager.create(Ticket, {
+            ...purchase.ticket,
+            id: undefined,
+            basePrice: newPrice,
+            sellerWalletAddress,
+            isResale: true,
+            originalPurchaseId: purchaseId,
+            quantity: purchase.quantity,
+            status: TicketStatus.AVAILABLE,
+          });
+
+          // Update original purchase status
+          await transactionalEntityManager.update(TicketPurchase, purchaseId, {
+            status: PurchaseStatus.RESOLD,
+          });
+
+          return await transactionalEntityManager.save(resaleTicket);
+        },
+      );
+
+      await this.redisService.releaseLock(lockKey);
+
+      return {
+        statusCode: HttpStatus.CREATED,
+        success: true,
+        message: 'Ticket listed for resale successfully',
+        data: result,
+      };
+    } catch (error) {
+      await this.redisService.releaseLock(lockKey);
+      throw error;
+    }
   }
 
   /**
@@ -269,27 +354,6 @@ export class TicketPurchaseService {
       data: isValid,
     };
   }
-
-  // /**
-  //  * Retrieve all purchases for a user
-  //  * @param userId - The ID of the user
-  //  * @returns A ServiceResponse containing array of purchases
-  //  */
-  // async getUserTickets(userId: string): Promise<ServiceResponse<TicketPurchase[]>> {
-  //   this.logger.log(`Retrieving tickets for user ${userId}`);
-
-  //   const purchases = await this.purchaseRepository.find({
-  //     where: { userId },
-  //     relations: ['ticket'],
-  //   });
-
-  //   return {
-  //     statusCode: HttpStatus.OK,
-  //     success: true,
-  //     message: 'User tickets retrieved successfully',
-  //     data: purchases,
-  //   };
-  // }
 
   /**
    * Retrieve a ticket by ID with its event relation
@@ -383,5 +447,21 @@ export class TicketPurchaseService {
     }
 
     this.logger.debug('Ticket resale validation successful');
+  }
+
+  async getPurchaseHistory(
+    buyerEmail: string,
+  ): Promise<ServiceResponse<TicketPurchase[]>> {
+    const purchases = await this.purchaseRepository.find({
+      where: { buyerEmail },
+      relations: ['ticket'],
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      success: true,
+      message: 'Purchase history retrieved successfully',
+      data: purchases,
+    };
   }
 }

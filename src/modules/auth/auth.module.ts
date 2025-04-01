@@ -1,50 +1,33 @@
 // src/auth/auth.module.ts
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
-import { User } from './entities/auth.entity';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { MailService } from '../../common/utils/email';
-import { AlchemyAAService } from '../../common/utils/alchemy';
-import { EncryptionService } from '../../common/utils/encryption.service';
-import { CustomAuthSigner } from '../../common/utils/custom-signer';
-import { Session } from './entities/session.entity';
-import { SessionService } from './session.service';
-import { SessionController } from './session.controller';
+import { User } from './entities/auth.entity';
+import { MailModule } from '../../common/utils/email.module';
+import { AlchemyModule } from '../../common/utils/alchemy.module';
+import { CustomSignerModule } from '../../common/utils/custom-signer.module';
+import { EncryptionModule } from '../../common/utils/encryption.module';
+import { WalletModule } from '../wallet/wallet.module';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Module({
   imports: [
-    ConfigModule,
-    TypeOrmModule.forFeature([User, Session]),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET'),
-        signOptions: { 
-          expiresIn: '24h' // Increased from 1h for better user experience
-        },
-      }),
+    TypeOrmModule.forFeature([User]),
+    JwtModule.register({
+      secret: process.env.JWT_SECRET,
+      signOptions: { expiresIn: '24h' },
     }),
+    MailModule,
+    AlchemyModule,
+    CustomSignerModule,
+    EncryptionModule,
+    WalletModule,
   ],
-  controllers: [AuthController, SessionController],
-  providers: [
-    AuthService,
-    SessionService,
-    MailService,
-    AlchemyAAService,
-    EncryptionService,
-    CustomAuthSigner,
-    {
-      provide: 'ENCRYPTION_KEY',
-      useFactory: (configService: ConfigService) => {
-        return configService.get('ENCRYPTION_KEY') || 'default-encryption-key-32-chars-here!!';
-      },
-      inject: [ConfigService],
-    },
-  ],
-  exports: [AuthService, JwtModule]
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy, JwtAuthGuard],
+  exports: [AuthService, JwtAuthGuard],
 })
 export class AuthModule {}
