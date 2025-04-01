@@ -66,6 +66,15 @@ export class Ticket {
   @Column({ type: 'varchar', default: TicketStatus.AVAILABLE })
   status: TicketStatus;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  sellerWalletAddress: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  isResale: boolean;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  originalPurchaseId: string | null;
+
   @ManyToOne(() => Event, (event) => event.tickets, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'eventId' })
   event: Event;

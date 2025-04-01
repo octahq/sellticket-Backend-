@@ -47,6 +47,20 @@ export class CreateTicketPurchaseDto {
   @IsString()
   buyerLastName: string;
 
+  @ApiProperty({
+    example: '0x123...',
+    description: 'Wallet address of the buyer',
+  })
+  @IsString()
+  buyerWalletAddress: string;
+
+  @ApiProperty({
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    description: 'ID of the user making the purchase',
+  })
+  @IsUUID()
+  userId: string;
+
   @ApiPropertyOptional({
     example: { specialRequests: 'Wheelchair access' },
     description: 'Additional information for the purchase',

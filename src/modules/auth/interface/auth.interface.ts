@@ -1,3 +1,5 @@
+import { Request } from 'express';
+
 export interface Options {
   numberOfDigits?: number;
   numberOfAlphabets?: number;
@@ -10,4 +12,11 @@ export interface RandomAlphanumeric {
 export interface AuthResponse {
   message: string;
   token?: string;
+}
+
+export interface AuthenticatedRequest extends Request {
+  user: {
+    userId: string;
+    email: string;
+  };
 }

@@ -47,6 +47,13 @@ export class CreateTicketPurchaseDto {
   @IsString()
   buyerLastName: string;
 
+  @ApiProperty({
+    example: '0x123...',
+    description: 'Ethereum wallet address of the buyer',
+  })
+  @IsString()
+  buyerWalletAddress: string;
+
   @ApiPropertyOptional({
     example: { specialRequests: 'Wheelchair access' },
     description: 'Additional information for the purchase',

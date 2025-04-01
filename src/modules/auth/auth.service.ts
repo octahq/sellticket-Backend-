@@ -6,18 +6,14 @@ import { Repository } from 'typeorm';
 import { User } from './entities/auth.entity';
 import * as bcrypt from 'bcryptjs';
 import { MailService } from '../../common/utils/email';
-import { AlchemyAAService } from '../../common/utils/alchemy';
-import { CustomAuthSigner } from '../../common/utils/custom-signer';
-import { EncryptionService } from 'src/common/utils/encryption.service';
+import { WalletService } from '../wallet/wallet.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private jwtService: JwtService,
     private mailService: MailService,
-    private alchemyAAService: AlchemyAAService,
-    private authSigner: CustomAuthSigner,
-    private encryptionService: EncryptionService,
+    private walletService: WalletService,
     @InjectRepository(User)
     private userRepository: Repository<User>,
   ) {}
@@ -29,31 +25,23 @@ export class AuthService {
       if (!user) {
         console.log('Creating new user with wallet...');
         try {
-          // Generate new wallet
-          const { mnemonic, address } = await this.authSigner.generateNewWallet();
-          
-          // Encrypt mnemonic
-          const encryptedMnemonic = this.encryptionService.encrypt(mnemonic);
-          
-          console.log('Wallet generated:', { 
-            address,
-            hasMnemonic: !!encryptedMnemonic 
-          });
-
-          // Create and save user
+          // Create user first
           user = this.userRepository.create({
             email,
-            walletAddress: address,
-            encryptedMnemonic: encryptedMnemonic // Make sure this matches the entity property
           });
-
           await this.userRepository.save(user);
-          
+
+          // Create wallet for user
+          const wallet = await this.walletService.createWallet(user.id);
+
+          // Update user with wallet address
+          user.walletAddress = wallet.address;
+          await this.userRepository.save(user);
+
           console.log('User saved with wallet:', {
             id: user.id,
             email: user.email,
-            hasWallet: !!user.walletAddress,
-            hasMnemonic: !!user.encryptedMnemonic
+            walletAddress: wallet.address,
           });
         } catch (walletError) {
           console.error('Failed to create wallet:', walletError);
@@ -63,8 +51,7 @@ export class AuthService {
         console.log('Existing user found:', {
           id: user.id,
           email: user.email,
-          hasWallet: !!user.walletAddress,
-          hasMnemonic: !!user.encryptedMnemonic
+          walletAddress: user.walletAddress,
         });
       }
 
@@ -88,7 +75,7 @@ export class AuthService {
         .sendMail(email, 'Your OTP Code', {
           text: `Your OTP code is: ${code}. It will expire in ${process.env.OTP_EXPIRATION_MINUTES || 5} minutes.`,
         })
-        .catch(error => console.error('Failed to send email:', error));
+        .catch((error) => console.error('Failed to send email:', error));
 
       return { message: 'OTP sent successfully.' };
     } catch (error) {
@@ -98,12 +85,17 @@ export class AuthService {
   }
 
   async verifyOtp(email: string, otp: string) {
-    const user = await this.userRepository.findOne({ 
+    const user = await this.userRepository.findOne({
       where: { email },
-      select: ['id', 'email', 'otp', 'otpExpiresAt', 'encryptedMnemonic', 'walletAddress']
+      select: ['id', 'email', 'otp', 'otpExpiresAt', 'walletAddress'],
     });
 
-    if (!user || !user.otp || !user.otpExpiresAt || user.otpExpiresAt < new Date()) {
+    if (
+      !user ||
+      !user.otp ||
+      !user.otpExpiresAt ||
+      user.otpExpiresAt < new Date()
+    ) {
       throw new UnauthorizedException('OTP expired or invalid.');
     }
 
@@ -111,31 +103,32 @@ export class AuthService {
       throw new UnauthorizedException('Incorrect OTP.');
     }
 
-    await this.userRepository.update(user.id, { otp: null, otpExpiresAt: null });
-    
-    // Initialize the auth signer with decrypted mnemonic
-    const walletAddress = await this.authSigner.initialize(user);
+    await this.userRepository.update(user.id, {
+      otp: null,
+      otpExpiresAt: null,
+    });
 
-    // Verify wallet address matches stored address
-    if (walletAddress !== user.walletAddress) {
-      throw new UnauthorizedException('Wallet address mismatch');
-    }
-
-    const payload = { 
+    const payload = {
       email: user.email,
       walletAddress: user.walletAddress,
-      userId: user.id
+      userId: user.id,
     };
-    
+
     return {
       message: 'Authentication successful',
-      token: this.jwtService.sign(payload)
+      token: this.jwtService.sign(payload),
     };
   }
 
-  private generateOtpCode = ({ numberOfDigits }: { numberOfDigits: number }) => {
+  private generateOtpCode = ({
+    numberOfDigits,
+  }: {
+    numberOfDigits: number;
+  }) => {
     const min = 10 ** (numberOfDigits - 1);
-    const max = (10 ** numberOfDigits) - 1;
-    return { randomDigits: String(Math.floor(min + Math.random() * (max - min + 1))) };
+    const max = 10 ** numberOfDigits - 1;
+    return {
+      randomDigits: String(Math.floor(min + Math.random() * (max - min + 1))),
+    };
   };
 }

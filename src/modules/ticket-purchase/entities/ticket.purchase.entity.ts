@@ -29,6 +29,18 @@ export class TicketPurchase {
   @Column()
   buyerLastName: string;
 
+  @Column()
+  userId: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  buyerWalletAddress: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  transactionHash: string | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  totalPrice: number | null;
+
   @Column({ type: 'jsonb', nullable: true })
   additionalInfo?: Record<string, any>;
 

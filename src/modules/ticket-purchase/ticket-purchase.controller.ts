@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,20 +16,22 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { TicketPurchaseService } from './ticket-purchase.service';
-import { CreateTicketPurchaseDto, CreateTicketResaleDto } from './dto';
-import { TicketResale } from './entities/ticket.resale.entity';
+import { CreateTicketPurchaseDto } from './dto';
 import { ServiceResponse } from '../tickets/interface/ticket.response';
 import { TicketPurchaseResponseDto } from './dto/ticket-purchase-response.dto';
-import { TicketPurchase } from './entities/ticket.purchase.entity';
+import { TicketPurchase } from './entities/ticket-purchase.entity';
+import { Ticket } from '../tickets/entities/ticket.entity';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('Ticket Purchases')
 @ApiBearerAuth()
 @Controller('ticket-purchases')
+@UseGuards(JwtAuthGuard)
 export class TicketPurchaseController {
   constructor(private readonly ticketPurchaseService: TicketPurchaseService) {}
 
   @Post('purchase')
-  @ApiOperation({ summary: 'Purchase tickets' })
+  @ApiOperation({ summary: 'Purchase tickets using wallet' })
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Tickets have been successfully purchased',
@@ -48,12 +51,12 @@ export class TicketPurchaseController {
     return this.ticketPurchaseService.purchaseTicket(createTicketPurchaseDto);
   }
 
-  @Post('resale')
+  @Post('resell/:purchaseId')
   @ApiOperation({ summary: 'List a ticket for resale' })
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Ticket has been successfully listed for resale',
-    type: TicketResale,
+    type: TicketPurchaseResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
@@ -63,49 +66,37 @@ export class TicketPurchaseController {
     status: HttpStatus.NOT_FOUND,
     description: 'Ticket not found',
   })
-  async createTicketResale(
-    @Body() createTicketResaleDto: CreateTicketResaleDto,
-  ): Promise<ServiceResponse<TicketResale>> {
-    return this.ticketPurchaseService.resellTicket(createTicketResaleDto);
+  async resellTicket(
+    @Param('purchaseId', ParseUUIDPipe) purchaseId: string,
+    @Body('newPrice') newPrice: number,
+    @Body('sellerWalletAddress') sellerWalletAddress: string,
+  ): Promise<ServiceResponse<Ticket>> {
+    return this.ticketPurchaseService.resellTicket(
+      purchaseId,
+      newPrice,
+      sellerWalletAddress,
+    );
   }
 
-  @Get('validate/:ticketId')
-  @ApiOperation({ summary: 'Validate a ticket' })
+  @Get('history/:buyerEmail')
+  @ApiOperation({ summary: 'Get purchase history for a buyer' })
   @ApiParam({
-    name: 'ticketId',
-    description: 'UUID of the ticket to validate',
+    name: 'buyerEmail',
+    description: 'Email of the buyer',
     type: String,
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Returns ticket validation status',
-    type: Boolean,
+    description: 'Returns purchase history',
+    type: [TicketPurchaseResponseDto],
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
-    description: 'Ticket not found',
+    description: 'No purchases found',
   })
-  async validateTicket(
-    @Param('ticketId', ParseUUIDPipe) ticketId: string,
-  ): Promise<ServiceResponse<boolean>> {
-    return this.ticketPurchaseService.validateTicket(ticketId);
+  async getPurchaseHistory(
+    @Param('buyerEmail') buyerEmail: string,
+  ): Promise<ServiceResponse<TicketPurchase[]>> {
+    return this.ticketPurchaseService.getPurchaseHistory(buyerEmail);
   }
-
-  //   @Get('user/:userId')
-  //   @ApiOperation({ summary: "Get user's tickets" })
-  //   @ApiParam({
-  //     name: 'userId',
-  //     description: 'ID of the user',
-  //     type: String,
-  //   })
-  //   @ApiResponse({
-  //     status: HttpStatus.OK,
-  //     description: "Returns user's tickets",
-  //     type: [TicketPurchase],
-  //   })
-  //   async getUserTickets(
-  //     @Param('userId') userId: string,
-  //   ): Promise<ServiceResponse<TicketPurchase[]>> {
-  //     return this.ticketPurchaseService.getUserTickets(userId);
-  //   }
 }
