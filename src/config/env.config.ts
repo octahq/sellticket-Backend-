@@ -26,6 +26,10 @@ const config = {
     paystackWebhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET,
     paystackVerifyTransactionUrl: process.env.PAYSTACK_VERIFY_TRANSACTION_URL,
   },
+  coinbase: {
+    apiKeyName: process.env.COINBASE_API_KEY_NAME,
+    privateKey: process.env.COINBASE_PRIVATE_KEY,
+  },
 };
 
 export default config;

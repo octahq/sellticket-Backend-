@@ -2,20 +2,19 @@ import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Wallet } from './entities/wallet.entity';
-import { ConfigService } from '@nestjs/config';
 import { Coinbase, Wallet as CoinbaseWallet } from '@coinbase/coinbase-sdk';
+import config from '../../config/env.config';
 
 @Injectable()
 export class WalletService {
   constructor(
     @InjectRepository(Wallet)
     private walletRepository: Repository<Wallet>,
-    private configService: ConfigService,
   ) {
     // Initialize Coinbase SDK
     Coinbase.configure({
-      apiKeyName: this.configService.get('COINBASE_API_KEY_NAME'),
-      privateKey: this.configService.get('COINBASE_PRIVATE_KEY'),
+      apiKeyName: config.coinbase.apiKeyName,
+      privateKey: config.coinbase.privateKey,
     });
   }
 
