@@ -11,6 +11,7 @@ import { RedisModule } from './redis/redis.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { QueueModule } from './modules/queue/queue.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -39,6 +40,8 @@ import { QueueModule } from './modules/queue/queue.module';
     }),
     EventModule,
     CategoryModule,
+    QueueModule,
+    AuthModule,
     TicketsModule,
     TicketPurchaseModule,
     QueueModule
